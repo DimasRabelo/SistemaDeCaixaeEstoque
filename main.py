@@ -1,11 +1,27 @@
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 from funcoes import *
 from datetime import date, datetime
 import sys, os
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
+
+# --- FUNÇÕES AUXILIARES DE CONVERSÃO SEGURA ---
+def safe_int(valor, padrao=0):
+    try:
+        texto = str(valor).strip()
+        return int(texto) if texto else padrao
+    except (ValueError, TypeError):
+        return padrao
+
+def safe_float(valor, padrao=0.0):
+    try:
+        texto = str(valor).strip().replace(",", ".")
+        return float(texto) if texto else padrao
+    except (ValueError, TypeError):
+        return padrao
+
 
 class Aplicativo(ctk.CTk):
     def __init__(self):
@@ -32,7 +48,8 @@ class Aplicativo(ctk.CTk):
         try:
             d, m, a = data_br.split("/")
             return f"{a}-{m}-{d}"
-        except: return date.today().strftime('%Y-%m-%d')
+        except Exception:
+            return date.today().strftime('%Y-%m-%d')
 
     def formatar_moeda_dinamico(self, event):
         widget = event.widget
@@ -53,7 +70,6 @@ class Aplicativo(ctk.CTk):
         ctk.CTkLabel(self.login_win, text="ADEGA DO OH RAÇA", font=("Arial", 20, "bold")).pack(pady=20)
         ctk.CTkLabel(self.login_win, text="Por favor, identifique-se:").pack()
         
-        # --- AJUSTE: LOGIN COM COMBOBOX ---
         users = [u[2] for u in listar_usuarios()]
         self.en_user = ctk.CTkComboBox(self.login_win, values=users, width=250)
         self.en_user.pack(pady=10)
@@ -80,8 +96,10 @@ class Aplicativo(ctk.CTk):
         self.carregar_dados(); self.deiconify() 
 
     def carregar_dados(self):
-        try: self.atualizar_lista_estoque(); self.atualizar_relatorio(); self.atualizar_lista_usuarios()
-        except: pass
+        try: 
+            self.atualizar_lista_estoque(); self.atualizar_relatorio(); self.atualizar_lista_usuarios()
+        except Exception as e:
+            print(f"[LOG ERRO] Erro ao carregar dados iniciais: {e}")
 
     def ao_trocar_aba(self):
         aba = self.tabview.get()
@@ -92,7 +110,8 @@ class Aplicativo(ctk.CTk):
     def aplicar_restricoes(self):
         if self.nivel_acesso == "Admin": return
         try: [self.tabview.delete(a) for a in ["Relatório", "Ajustes", "Usuários"]]
-        except: pass
+        except Exception as e:
+            print(f"[LOG ERRO] Erro ao aplicar restrições de nível: {e}")
 
     # --- ABA VENDER ---
     def configurar_aba_vender(self):
@@ -112,9 +131,14 @@ class Aplicativo(ctk.CTk):
         f_q = ctk.CTkFrame(f_esq, fg_color="transparent"); f_q.pack(pady=2)
         self.en_qtd = ctk.CTkEntry(f_q, width=60, justify="center"); self.en_qtd.insert(0, "1"); self.en_qtd.pack(side="left", padx=5)
         ctk.CTkButton(f_q, text="ADICIONAR +", command=self.add_carro, fg_color="#1f538d", height=35, width=150, font=("Arial", 12, "bold")).pack(side="left", padx=5)
+        
+        # --- PAINEL DIREITO DE VALORES ---
         f_dir = ctk.CTkFrame(f_main, fg_color="#2b2b2b", corner_radius=10, width=350); f_dir.pack(side="right", padx=20, pady=10, fill="y"); f_dir.pack_propagate(False) 
         self.lbl_tot = ctk.CTkLabel(f_dir, text="TOTAL: R$ 0,00", font=("Arial", 28, "bold"), text_color="yellow"); self.lbl_tot.pack(pady=10)
-        self.lbl_troco = ctk.CTkLabel(f_dir, text="TROCO: R$ 0,00", font=("Arial", 18, "bold"), text_color="#32CD32"); self.lbl_troco.pack(pady=5)
+        
+        self.lbl_falta = ctk.CTkLabel(f_dir, text="FALTA: R$ 0,00", font=("Arial", 18, "bold"), text_color="#FF8C00"); self.lbl_falta.pack(pady=2)
+        self.lbl_troco = ctk.CTkLabel(f_dir, text="TROCO: R$ 0,00", font=("Arial", 18, "bold"), text_color="#32CD32"); self.lbl_troco.pack(pady=2)
+        
         f_p = ctk.CTkFrame(f_dir, fg_color="transparent"); f_p.pack(pady=15)
         ctk.CTkButton(f_p, text="DINHEIRO", width=120, height=45, fg_color="#228B22", command=lambda: self.add_pag("Dinheiro")).grid(row=0, column=0, padx=5, pady=5)
         ctk.CTkButton(f_p, text="PIX", width=120, height=45, fg_color="#008B8B", command=lambda: self.add_pag("PIX")).grid(row=0, column=1, padx=5, pady=5)
@@ -126,27 +150,28 @@ class Aplicativo(ctk.CTk):
 
     def add_carro(self):
         try:
-            n, q, t = self.en_busca.get().strip(), int(self.en_qtd.get()), self.tp_venda.get()
+            n = self.en_busca.get().strip()
+            q = safe_int(self.en_qtd.get(), padrao=1)
+            t = self.tp_venda.get()
+
+            if not n or q <= 0:
+                return
+
             idp = buscar_id_por_nome_exato(n)
             
             if idp:
                 p = buscar_produto_por_id(idp)
-                # p[4] = Preço Venda Unitário | p[5] = Preço Fardo | p[6] = Unidades por fardo
-                
-                # --- LÓGICA DE PREÇO INFALÍVEL ---
+                if not p: return
+
                 if t in ['Fardo', 'Caixa', 'Pacote']:
-                    # 1. Se existir um preço de fardo cadastrado (maior que zero), usa ele
                     if p[5] and p[5] > 0:
                         preco_aplicado = p[5]
                     else:
-                        # 2. Se não houver preço de fardo, calcula: Unitário * Qtd no Fardo
                         unidades = p[6] if p[6] and p[6] > 0 else 1
                         preco_aplicado = p[4] * unidades
                 else:
-                    # 3. Venda por unidade simples
                     preco_aplicado = p[4]
 
-                # Verifica se o item já existe no carrinho para somar
                 ex = next((i for i in self.carrinho if i['id'] == idp and i['tipo'] == t), None)
                 if ex:
                     ex['qtd'] += q
@@ -164,16 +189,16 @@ class Aplicativo(ctk.CTk):
                 self.up_carro_visual()
                 self.calc_venda()
                 
-                # Limpeza e foco
                 self.en_busca.delete(0, 'end')
                 self.en_qtd.delete(0, 'end')
                 self.en_qtd.insert(0, "1")
                 self.en_busca.focus_set()
         except Exception as e:
-            print(f"Erro no cálculo do fardo: {e}")
+            print(f"[LOG ERRO] Erro ao adicionar produto ao carrinho: {e}")
+
     def remover_item_carrinho(self):
         try:
-            idx = int(self.en_rem_idx.get()) - 1
+            idx = safe_int(self.en_rem_idx.get()) - 1
             if 0 <= idx < len(self.carrinho):
                 item = self.carrinho[idx]
                 per = f"Produto: {item['nome']}\nQtd atual: {item['qtd']}\n\n• OK p/ apagar TUDO\n• Ou digite a qtd a retirar:"
@@ -181,42 +206,85 @@ class Aplicativo(ctk.CTk):
                 if res is None: return
                 if res.strip() == "": self.carrinho.pop(idx)
                 elif res.isdigit():
-                    q = int(res)
+                    q = safe_int(res)
                     if q >= item['qtd']: self.carrinho.pop(idx)
                     else: item['qtd'] -= q; item['sub'] = item['qtd'] * item['unit']
                 self.up_carro_visual(); self.calc_venda(); self.en_rem_idx.delete(0, 'end')
-        except: pass
+        except Exception as e:
+            print(f"[LOG ERRO] Erro ao remover item do carrinho: {e}")
 
     def add_pag(self, forma):
         self.win_pag = ctk.CTkToplevel(self)
         self.win_pag.title(f"Pagamento: {forma}"); self.win_pag.geometry("350x250"); self.win_pag.attributes("-topmost", True)
         self.after(200, lambda: self.win_pag.grab_set())
         ctk.CTkLabel(self.win_pag, text=f"VALOR NO {forma.upper()}", font=("Arial", 16, "bold")).pack(pady=15)
+        
+        tot, pg = sum(i['sub'] for i in self.carrinho), sum(p['valor'] for p in self.pagamentos_venda)
+        falta = max(0.0, round(tot - pg, 2))
+        
         self.en_v_pag = ctk.CTkEntry(self.win_pag, width=200, placeholder_text="0.00", justify="center", font=("Arial", 20))
         self.en_v_pag.pack(pady=10)
+        
+        if falta > 0:
+            self.en_v_pag.insert(0, f"{falta:.2f}")
+
         self.en_v_pag.bind("<KeyRelease>", self.formatar_moeda_dinamico)
         ctk.CTkButton(self.win_pag, text="CONFIRMAR", fg_color="green", height=40, command=lambda: self.confirmar_pag_final(forma)).pack(pady=20)
         self.win_pag.bind("<Return>", lambda e: self.confirmar_pag_final(forma)); self.after(300, lambda: self.en_v_pag.focus_set())
 
     def confirmar_pag_final(self, forma):
         try:
-            val = float(self.en_v_pag.get())
+            val = safe_float(self.en_v_pag.get())
+            if val <= 0: return
             self.pagamentos_venda.append({'forma': forma, 'valor': val})
             self.txt_pagos.insert("end", f"{forma}: R$ {val:.2f}\n")
             self.calc_venda(); self.win_pag.destroy()
-        except: pass
+        except Exception as e:
+            print(f"[LOG ERRO] Erro ao confirmar pagamento: {e}")
+
+    def calc_venda(self):
+        tot = sum(i['sub'] for i in self.carrinho)
+        pg = sum(p['valor'] for p in self.pagamentos_venda)
+        
+        falta = round(tot - pg, 2)
+        troco = round(pg - tot, 2)
+
+        self.lbl_tot.configure(text=f"TOTAL: R$ {tot:.2f}")
+
+        if falta > 0:
+            self.lbl_falta.configure(text=f"FALTA: R$ {falta:.2f}")
+            self.lbl_troco.configure(text="TROCO: R$ 0,00")
+        else:
+            self.lbl_falta.configure(text="FALTA: R$ 0,00")
+            self.lbl_troco.configure(text=f"TROCO: R$ {max(0, troco):.2f}")
+
+        self.btn_fim.configure(state="normal" if pg >= tot > 0 else "disabled")
 
     def finalizar(self):
         try:
             total_venda = sum(item['sub'] for item in self.carrinho)
             total_pago = sum(p['valor'] for p in self.pagamentos_venda)
             troco = round(total_pago - total_venda, 2)
-            forma = self.pagamentos_venda[0]['forma'] if self.pagamentos_venda else "Dinheiro"
-            for i in self.carrinho: registrar_venda(i['id'], i['qtd'], i['tipo'], forma, self.usuario_atual)
-            msg = "Venda concluída com sucesso!"; 
-            if troco > 0: msg += f"\n\nTroco a devolver: R$ {troco:.2f}"
-            messagebox.showinfo("Venda OK", msg); self.limpar(); self.carregar_dados() 
-        except Exception as e: messagebox.showerror("Erro", str(e))
+            
+            forma_principal = self.pagamentos_venda[0]['forma'] if self.pagamentos_venda else "Dinheiro"
+
+            # 1. Registra os itens vendidos para baixa de estoque e lista de produtos/vendedores
+            for item in self.carrinho:
+                registrar_venda(item['id'], item['qtd'], item['tipo'], forma_principal, self.usuario_atual)
+
+            # 2. Registra CADA pagamento efetuado na tabela pagamentos_venda
+            for pag in self.pagamentos_venda:
+                registrar_pagamento_detalhado(pag['forma'], pag['valor'], self.usuario_atual)
+
+            msg = "Venda concluída com sucesso!" 
+            if troco > 0: 
+                msg += f"\n\nTroco a devolver: R$ {troco:.2f}"
+                
+            messagebox.showinfo("Venda OK", msg)
+            self.limpar()
+            self.carregar_dados() 
+        except Exception as e: 
+            messagebox.showerror("Erro", str(e))
 
     # --- ABA ESTOQUE ---
     def configurar_aba_estoque(self):
@@ -230,7 +298,8 @@ class Aplicativo(ctk.CTk):
         ctk.CTkLabel(f_l, text="ID Excluir:").pack()
         self.en_del = ctk.CTkEntry(f_l, width=80, justify="center", state="readonly"); self.en_del.pack(pady=5)
         ctk.CTkButton(f_l, text="EXCLUIR", fg_color="#A52A2A", command=self.acao_excluir, width=180).pack(pady=20)
-        self.txt_est = ctk.CTkTextbox(f_c, font=("Courier New", 13), border_width=1); self.txt_est.pack(side="right", padx=10, pady=10, expand=True, fill="both")
+        
+        self.txt_est = ctk.CTkTextbox(f_c, font=("Courier New", 13), border_width=1, wrap="none"); self.txt_est.pack(side="right", padx=10, pady=10, expand=True, fill="both")
 
     def acao_excluir(self):
         id_d = self.en_del.get()
@@ -241,12 +310,10 @@ class Aplicativo(ctk.CTk):
     def atualizar_lista_estoque(self):
         self.txt_est.delete("0.0", "end")
         
-        # --- CABEÇALHO COM LARGURAS FIXAS ---
-        # Definimos larguras fixas (ex: 4 para ID, 20 para PRODUTO)
         header = (
             f"{'ID':<4} | "
-            f"{'PRODUTO':<20} | "
-            f"{'CATEGORIA':<12} | "
+            f"{'PRODUTO':<30} | "
+            f"{'CATEGORIA':<15} | "
             f"{'TOTAL':<6} | "
             f"{'UN/F':<5} | "
             f"{'VOL (F/UN)':<12} | "
@@ -256,18 +323,15 @@ class Aplicativo(ctk.CTk):
             f"{'COD. BARRAS'}\n"
         )
         
-        # 135 traços para manter seu padrão
-        separator = "-" * 135 + "\n"
+        separator = "-" * 145 + "\n"
         
         self.txt_est.insert("end", header)
         self.txt_est.insert("end", separator)
         
-        # --- LOOP DE DADOS COM AS MESMAS LARGURAS ---
         for p in listar_produtos():
-            # Mapeamento: p[0]=ID, p[1]=Nome, p[2]=Qtd, p[3]=Custo, p[4]=Venda, p[5]=PreçoFardo, p[6]=UnPorFardo, p[7]=Barras, p[8]=Categoria
             id_p      = p[0]
-            nome      = (p[1][:20]) # Corta o nome se for maior que 20 para não quebrar a linha
-            categoria = (p[8] or "Geral")[:12]
+            nome      = str(p[1])
+            categoria = str(p[8] or "Geral")
             qtd_total = p[2]
             un_vol    = p[6] if p[6] and p[6] > 0 else 1
             custo     = p[3]
@@ -275,30 +339,29 @@ class Aplicativo(ctk.CTk):
             preco_f   = p[5] if p[5] else 0.00
             barras    = p[7] or "---"
             
-            # Cálculo do Volume
             fardos = qtd_total // un_vol
             sobra  = qtd_total % un_vol
             txt_vol = f"{fardos}v/{sobra}u"
             
-            # Montagem da linha respeitando exatamente o espaçamento do header
             linha = (
                 f"{id_p:<4} | "
-                f"{nome:<20} | "
-                f"{categoria:<12} | "
+                f"{nome:<30} | "
+                f"{categoria:<15} | "
                 f"{qtd_total:<6} | "
                 f"{un_vol:<5} | "
                 f"{txt_vol:<12} | "
-                f"{custo:>6.2f}    | " # Espaço extra para alinhar com o título CUSTO
-                f"{venda:>6.2f}    | " # Espaço extra para alinhar com o título VENDA
-                f"{preco_f:>7.2f}   | " # Espaço extra para alinhar com o título V. FARDO
+                f"{custo:>6.2f}    | "
+                f"{venda:>6.2f}    | "
+                f"{preco_f:>7.2f}   | "
                 f"{barras}\n"
             )
             self.txt_est.insert("end", linha)
+
     # --- ABA RELATÓRIO ---
     def configurar_aba_relatorio(self):
         tab = self.tabview.tab("Relatório"); ctk.CTkLabel(tab, text="FECHAMENTO DE CAIXA", font=("Arial", 24, "bold")).pack(pady=10)
         f_filtros = ctk.CTkFrame(tab, fg_color="transparent"); f_filtros.pack(pady=5)
-        # --- AJUSTE: FILTRO DE DATA COM MÁSCARA ---
+        
         ctk.CTkLabel(f_filtros, text="De:").pack(side="left", padx=5)
         self.data_de = ctk.CTkEntry(f_filtros, width=110, placeholder_text="DD/MM/AAAA")
         self.data_de.insert(0, date.today().strftime('%d/%m/%Y'))
@@ -321,13 +384,58 @@ class Aplicativo(ctk.CTk):
         f_t = ctk.CTkFrame(f_res, fg_color="transparent"); f_t.pack(side="right", expand=True, pady=15, padx=30)
         self.lbl_rel_geral = ctk.CTkLabel(f_t, text="FATURAMENTO: R$ 0,00", font=("Arial", 22, "bold"), text_color="yellow"); self.lbl_rel_geral.pack()
         self.lbl_rel_lucro = ctk.CTkLabel(f_t, text="LUCRO LÍQUIDO: R$ 0,00", font=("Arial", 22, "bold"), text_color="#00FF7F"); self.lbl_rel_lucro.pack()
-        ctk.CTkButton(tab, text="🔄 FILTRAR E ATUALIZAR", command=lambda: self.atualizar_relatorio(True), height=45, width=300, font=("Arial", 14, "bold"), fg_color="#1f538d").pack(pady=10)
+        
+        # Botões de Ação na Aba Relatório
+        ctk.CTkButton(tab, text="🔄 FILTRAR E ATUALIZAR", command=lambda: self.atualizar_relatorio(True), height=40, width=300, font=("Arial", 14, "bold"), fg_color="#1f538d").pack(pady=5)
+
+        f_exp = ctk.CTkFrame(tab, fg_color="transparent")
+        f_exp.pack(pady=5)
+        ctk.CTkButton(f_exp, text="📄 SALVAR EM DOCX", command=self.exportar_docx, fg_color="#2B579A", width=145, height=35, font=("Arial", 12, "bold")).pack(side="left", padx=5)
+        ctk.CTkButton(f_exp, text="🔴 SALVAR EM PDF", command=self.exportar_pdf, fg_color="#B31412", width=145, height=35, font=("Arial", 12, "bold")).pack(side="left", padx=5)
+
         self.txt_rel_itens = ctk.CTkTextbox(tab, width=1000, height=350, font=("Courier New", 12)); self.txt_rel_itens.pack(pady=10)
+
+    def obter_dados_relatorio_atual(self):
+        d1_str = self.data_de.get()
+        d2_str = self.data_ate.get()
+        d1, d2 = self.data_br_para_sql(d1_str) + " 00:00:00", self.data_br_para_sql(d2_str) + " 23:59:59"
+        
+        din = resumo_vendas_por_metodo("Dinheiro", d1, d2)
+        pix = resumo_vendas_por_metodo("PIX", d1, d2)
+        deb = resumo_vendas_por_metodo("Débito", d1, d2)
+        cre = resumo_vendas_por_metodo("Crédito", d1, d2)
+        
+        faturamento = din + pix + deb + cre
+        lucro = calcular_lucro_hoje(d1, d2)
+        metodos = {"Dinheiro": din, "PIX": pix, "Débito": deb, "Crédito": cre}
+        texto_detalhes = self.txt_rel_itens.get("1.0", "end").strip()
+        periodo = f"{d1_str} até {d2_str}"
+        
+        return periodo, faturamento, lucro, metodos, texto_detalhes
+
+    def exportar_docx(self):
+        try:
+            caminho = filedialog.asksaveasfilename(defaultextension=".docx", filetypes=[("Documento Word", "*.docx")])
+            if caminho:
+                periodo, fat, luc, metodos, texto = self.obter_dados_relatorio_atual()
+                exportar_relatorio_docx(caminho, periodo, fat, luc, metodos, texto)
+                messagebox.showinfo("Sucesso", "Relatório exportado em DOCX com sucesso!")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Falha ao exportar DOCX: {e}")
+
+    def exportar_pdf(self):
+        try:
+            caminho = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("Arquivo PDF", "*.pdf")])
+            if caminho:
+                periodo, fat, luc, metodos, texto = self.obter_dados_relatorio_atual()
+                exportar_relatorio_pdf(caminho, periodo, fat, luc, metodos, texto)
+                messagebox.showinfo("Sucesso", "Relatório exportado em PDF com sucesso!")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Falha ao exportar PDF: {e}")
 
     def atualizar_relatorio(self, manual=False):
         try:
             ab, fe = obter_horarios(); self.lbl_horarios_info.configure(text=f"Turno: {ab} às {fe}")
-            # --- AJUSTE: BUSCA POR PERÍODO ---
             d1, d2 = self.data_br_para_sql(self.data_de.get()) + " 00:00:00", self.data_br_para_sql(self.data_ate.get()) + " 23:59:59"
             din = resumo_vendas_por_metodo("Dinheiro", d1, d2); pix = resumo_vendas_por_metodo("PIX", d1, d2)
             deb = resumo_vendas_por_metodo("Débito", d1, d2); cre = resumo_vendas_por_metodo("Crédito", d1, d2)
@@ -427,22 +535,6 @@ class Aplicativo(ctk.CTk):
             self.txt_carro_visual.insert("end", f"{i+1} | {item['qtd']}x {item['nome']} | R$ {item['sub']:.2f}{st}\n")
             if st: self.txt_carro_visual.tag_add(f"p_{i}", f"{i+1}.0", f"{i+1}.end"); self.txt_carro_visual.tag_config(f"p_{i}", foreground="#32CD32")
 
-    def calc_venda(self):
-        tot, pg = sum(i['sub'] for i in self.carrinho), sum(p['valor'] for p in self.pagamentos_venda); dif = round(pg - tot, 2)
-        self.lbl_tot.configure(text=f"TOTAL: R$ {tot:.2f}"); self.lbl_troco.configure(text=f"TROCO: R$ {max(0, dif):.2f}")
-        self.btn_fim.configure(state="normal" if pg >= tot > 0 else "disabled")
-
-    def finalizar(self):
-        try:
-            total_venda, total_pago = sum(item['sub'] for item in self.carrinho), sum(p['valor'] for p in self.pagamentos_venda)
-            troco = round(total_pago - total_venda, 2)
-            forma = self.pagamentos_venda[0]['forma'] if self.pagamentos_venda else "Dinheiro"
-            for i in self.carrinho: registrar_venda(i['id'], i['qtd'], i['tipo'], forma, self.usuario_atual)
-            msg = "Venda concluída com sucesso!"; 
-            if troco > 0: msg += f"\n\nTroco a devolver: R$ {troco:.2f}"
-            messagebox.showinfo("Venda OK", msg); self.limpar(); self.carregar_dados() 
-        except Exception as e: messagebox.showerror("Erro", str(e))
-
     def limpar(self):
         self.carrinho, self.pagamentos_venda = [], []; self.txt_carro_visual.delete("1.0", "end"); self.txt_pagos.delete("1.0", "end"); self.calc_venda(); self.en_busca.focus_set()
 
@@ -471,17 +563,38 @@ class Aplicativo(ctk.CTk):
 
     def calcular_custo_fardo(self):
         try:
-            v, f, u = float(self.en_calc_val.get()), int(self.en_calc_fardos.get()), int(self.en_calc_un_por_f.get())
-            c = v / (f * u); self.en_cus.delete(0,'end'); self.en_cus.insert(0, f"{c:.2f}"); self.en_est.delete(0,'end'); self.en_est.insert(0, str(f*u))
-        except: pass
+            v = safe_float(self.en_calc_val.get())
+            f = safe_int(self.en_calc_fardos.get(), padrao=1)
+            u = safe_int(self.en_calc_un_por_f.get(), padrao=12)
+            if f * u == 0: return
+            c = v / (f * u)
+            self.en_cus.delete(0,'end'); self.en_cus.insert(0, f"{c:.2f}")
+            self.en_est.delete(0,'end'); self.en_est.insert(0, str(f*u))
+        except Exception as e:
+            print(f"[LOG ERRO] Erro ao calcular custo do fardo: {e}")
 
     def ao_bipar_no_cadastro(self, e):
         p = buscar_produto_por_codigo(self.en_cod.get())
         if p: self.en_id.delete(0,'end'); self.en_id.insert(0, str(p[0])); self.preencher_campos_cad(p)
 
     def salvar(self):
-        try: adicionar_produto(self.en_nome.get(), int(self.en_est.get()), float(self.en_cus.get()), float(self.en_ven.get()), float(self.en_v_f.get() or 0), int(self.en_q_f.get() or 0), self.en_id.get() if self.en_id.get().isdigit() else None, self.en_cod.get(), self.en_cat.get()); messagebox.showinfo("OK", "Salvo!"); self.carregar_dados(); self.limpar_cad()
-        except Exception as e: messagebox.showerror("Erro", str(e))
+        try: 
+            adicionar_produto(
+                self.en_nome.get(), 
+                safe_int(self.en_est.get()), 
+                safe_float(self.en_cus.get()), 
+                safe_float(self.en_ven.get()), 
+                safe_float(self.en_v_f.get()), 
+                safe_int(self.en_q_f.get()), 
+                self.en_id.get() if self.en_id.get().isdigit() else None, 
+                self.en_cod.get(), 
+                self.en_cat.get()
+            )
+            messagebox.showinfo("OK", "Salvo!")
+            self.carregar_dados()
+            self.limpar_cad()
+        except Exception as e: 
+            messagebox.showerror("Erro", str(e))
 
     def limpar_cad(self): [e.delete(0,'end') for e in [self.en_id, self.en_nome, self.en_est, self.en_cus, self.en_ven, self.en_cod, self.en_v_f, self.en_q_f]]
 

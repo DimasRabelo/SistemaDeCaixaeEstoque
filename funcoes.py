@@ -1,20 +1,90 @@
 import sqlite3
 from datetime import datetime, timedelta
+from docx import Document
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
+# --- FUNÇÕES DE EXPORTAÇÃO DE RELATÓRIO ---
+def exportar_relatorio_docx(caminho_arquivo, periodo, faturamento, lucro, metodos, texto_detalhes):
+    doc = Document()
+    doc.add_heading('Adega do Dimas - Fechamento de Caixa', level=1)
+    doc.add_paragraph(f"Período: {periodo}")
+    doc.add_paragraph(f"Faturamento Total: R$ {faturamento:.2f}")
+    doc.add_paragraph(f"Lucro Líquido: R$ {lucro:.2f}")
+    
+    doc.add_heading('Resumo por Método de Pagamento', level=2)
+    for metodo, valor in metodos.items():
+        doc.add_paragraph(f"{metodo}: R$ {valor:.2f}")
+        
+    doc.add_heading('Detalhamento de Vendedores e Produtos', level=2)
+    doc.add_paragraph(texto_detalhes)
+    
+    doc.save(caminho_arquivo)
+
+def exportar_relatorio_pdf(caminho_arquivo, periodo, faturamento, lucro, metodos, texto_detalhes):
+    c = canvas.Canvas(caminho_arquivo, pagesize=letter)
+    y = 750
+    
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(50, y, "Adega do Dimas - Fechamento de Caixa")
+    y -= 25
+    
+    c.setFont("Helvetica", 12)
+    c.drawString(50, y, f"Período: {periodo}")
+    y -= 20
+    c.drawString(50, y, f"Faturamento Total: R$ {faturamento:.2f} | Lucro: R$ {lucro:.2f}")
+    y -= 30
+    
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(50, y, "Métodos de Pagamento:")
+    y -= 20
+    c.setFont("Helvetica", 11)
+    for metodo, valor in metodos.items():
+        c.drawString(70, y, f"{metodo}: R$ {valor:.2f}")
+        y -= 15
+        
+    y -= 20
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(50, y, "Detalhamento:")
+    y -= 20
+    
+    c.setFont("Courier", 10)
+    for linha in texto_detalhes.split("\n"):
+        if y < 50:
+            c.showPage()
+            y = 750
+            c.setFont("Courier", 10)
+        c.drawString(50, y, linha)
+        y -= 15
+        
+    c.save()
+
+# --- CONEXÃO E ESTRUTURA DO BANCO ---
 def conectar():
     conexao = sqlite3.connect('adega.db')
     cursor = conexao.cursor()
+    
+    # Tabela de Produtos
     cursor.execute('''CREATE TABLE IF NOT EXISTS produtos 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, quantidade INTEGER, 
         preco_custo REAL, preco_venda REAL, preco_fardo REAL, unidades_por_fardo INTEGER, 
         codigo_barras TEXT, categoria TEXT)''')
+    
+    # Tabela de Vendas (Histórico de Saída de Estoque)
     cursor.execute('''CREATE TABLE IF NOT EXISTS vendas 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, id_produto INTEGER, quantidade_vendida INTEGER, 
         valor_pago REAL, tipo_venda TEXT, metodo_pagamento TEXT, custo_na_venda REAL, data_venda TEXT, vendedor TEXT)''')
+    
+    # Nova Tabela para Pagamentos Exatos (Suporta Pagamentos Parciais/Divididos)
+    cursor.execute('''CREATE TABLE IF NOT EXISTS pagamentos_venda 
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, forma_pagamento TEXT, valor REAL, usuario TEXT, data_pagamento TEXT)''')
+
+    # Tabelas Auxiliares e Sistema
     cursor.execute('''CREATE TABLE IF NOT EXISTS config (chave TEXT PRIMARY KEY, valor TEXT)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, login TEXT UNIQUE, senha TEXT, nivel TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_nome TEXT, acao TEXT, data_hora TEXT)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS logs 
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_nome TEXT, acao TEXT, data_hora TEXT)''')
 
     cursor.execute("PRAGMA table_info(vendas)")
     if 'vendedor' not in [col[1] for col in cursor.fetchall()]:
@@ -24,6 +94,7 @@ def conectar():
     if cursor.fetchone()[0] == 0:
         cursor.execute("INSERT INTO usuarios (nome, login, senha, nivel) VALUES (?, ?, ?, ?)",
                        ('Administrador', 'admin', '1234', 'Admin'))
+    
     conexao.commit()
     return conexao
 
@@ -48,6 +119,12 @@ def registrar_venda(id_p, qtd, tipo, metodo, vendedor="Sistema"):
     cursor.execute("UPDATE produtos SET quantidade = quantidade - ? WHERE id = ?", (q_est, id_p))
     conn.commit(); conn.close()
 
+def registrar_pagamento_detalhado(forma, valor, usuario="Sistema"):
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute("INSERT INTO pagamentos_venda (forma_pagamento, valor, usuario, data_pagamento) VALUES (?, ?, ?, datetime('now','localtime'))",
+                   (forma, valor, usuario))
+    conn.commit(); conn.close()
+
 # --- RELATÓRIOS COM FILTRO ---
 def calcular_lucro_hoje(d1, d2):
     conn = conectar(); cursor = conn.cursor()
@@ -56,8 +133,8 @@ def calcular_lucro_hoje(d1, d2):
 
 def resumo_vendas_por_metodo(met, d1, d2):
     conn = conectar(); cursor = conn.cursor()
-    cursor.execute("SELECT SUM(valor_pago) FROM vendas WHERE metodo_pagamento = ? AND data_venda BETWEEN ? AND ?", (met, d1, d2))
-    res = cursor.fetchone()[0]; conn.close(); return res if res else 0
+    cursor.execute("SELECT SUM(valor) FROM pagamentos_venda WHERE forma_pagamento = ? AND data_pagamento BETWEEN ? AND ?", (met, d1, d2))
+    res = cursor.fetchone()[0]; conn.close(); return res if res else 0.0
 
 def resumo_vendas_por_vendedor(d1, d2):
     conn = conectar(); cursor = conn.cursor()
