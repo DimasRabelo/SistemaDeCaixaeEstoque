@@ -165,13 +165,14 @@ def produtos_mais_vendidos_hoje(d1, d2):
 
 def vendas_por_filtro_produto(nome_produto, d1, d2):
     conn = conectar(); cursor = conn.cursor()
+    termo = f"%{nome_produto.strip().lower()}%"
     cursor.execute('''
         SELECT p.nome, SUM(v.quantidade_vendida), v.tipo_venda, SUM(v.valor_pago)
         FROM vendas v 
         JOIN produtos p ON v.id_produto = p.id 
-        WHERE p.nome LIKE ? AND v.data_venda BETWEEN ? AND ?
+        WHERE LOWER(p.nome) LIKE ? AND v.data_venda BETWEEN ? AND ?
         GROUP BY p.nome, v.tipo_venda
-    ''', ('%' + nome_produto + '%', d1, d2))
+    ''', (termo, d1, d2))
     res = cursor.fetchall(); conn.close()
     return res
 
