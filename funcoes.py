@@ -3,47 +3,57 @@ from datetime import datetime, timedelta
 from docx import Document
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+import subprocess
+import os
+import sys
 
 # --- FUNÇÕES DE EXPORTAÇÃO DE RELATÓRIO ---
-def exportar_relatorio_docx(caminho_arquivo, periodo, faturamento, lucro, metodos, texto_detalhes):
+def exportar_relatorio_docx(caminho_arquivo, titulo, periodo, faturamento, lucro, metodos, texto_detalhes):
     doc = Document()
-    doc.add_heading('Adega do Dimas - Fechamento de Caixa', level=1)
-    doc.add_paragraph(f"Período: {periodo}")
-    doc.add_paragraph(f"Faturamento Total: R$ {faturamento:.2f}")
-    doc.add_paragraph(f"Lucro Líquido: R$ {lucro:.2f}")
+    doc.add_heading(f'Adega do Dimas - {titulo}', level=1)
+    if periodo:
+        doc.add_paragraph(f"Período: {periodo}")
+    if faturamento is not None:
+        doc.add_paragraph(f"Faturamento Total: R$ {faturamento:.2f}")
+    if lucro is not None:
+        doc.add_paragraph(f"Lucro Líquido: R$ {lucro:.2f}")
     
-    doc.add_heading('Resumo por Método de Pagamento', level=2)
-    for metodo, valor in metodos.items():
-        doc.add_paragraph(f"{metodo}: R$ {valor:.2f}")
+    if metodos:
+        doc.add_heading('Resumo por Método de Pagamento', level=2)
+        for metodo, valor in metodos.items():
+            doc.add_paragraph(f"{metodo}: R$ {valor:.2f}")
         
-    doc.add_heading('Detalhamento de Vendedores e Produtos', level=2)
+    doc.add_heading('Detalhamento', level=2)
     doc.add_paragraph(texto_detalhes)
     
     doc.save(caminho_arquivo)
 
-def exportar_relatorio_pdf(caminho_arquivo, periodo, faturamento, lucro, metodos, texto_detalhes):
+def exportar_relatorio_pdf(caminho_arquivo, titulo, periodo, faturamento, lucro, metodos, texto_detalhes):
     c = canvas.Canvas(caminho_arquivo, pagesize=letter)
     y = 750
     
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, y, "Adega do Dimas - Fechamento de Caixa")
+    c.drawString(50, y, f"Adega do Dimas - {titulo}")
     y -= 25
     
     c.setFont("Helvetica", 12)
-    c.drawString(50, y, f"Período: {periodo}")
-    y -= 20
-    c.drawString(50, y, f"Faturamento Total: R$ {faturamento:.2f} | Lucro: R$ {lucro:.2f}")
-    y -= 30
+    if periodo:
+        c.drawString(50, y, f"Período: {periodo}")
+        y -= 20
+    if faturamento is not None and lucro is not None:
+        c.drawString(50, y, f"Faturamento Total: R$ {faturamento:.2f} | Lucro: R$ {lucro:.2f}")
+        y -= 30
     
-    c.setFont("Helvetica-Bold", 13)
-    c.drawString(50, y, "Métodos de Pagamento:")
-    y -= 20
-    c.setFont("Helvetica", 11)
-    for metodo, valor in metodos.items():
-        c.drawString(70, y, f"{metodo}: R$ {valor:.2f}")
-        y -= 15
+    if metodos:
+        c.setFont("Helvetica-Bold", 13)
+        c.drawString(50, y, "Métodos de Pagamento:")
+        y -= 20
+        c.setFont("Helvetica", 11)
+        for metodo, valor in metodos.items():
+            c.drawString(70, y, f"{metodo}: R$ {valor:.2f}")
+            y -= 15
+        y -= 20
         
-    y -= 20
     c.setFont("Helvetica-Bold", 13)
     c.drawString(50, y, "Detalhamento:")
     y -= 20
@@ -59,27 +69,34 @@ def exportar_relatorio_pdf(caminho_arquivo, periodo, faturamento, lucro, metodos
         
     c.save()
 
+def abrir_arquivo_gerado(caminho):
+    try:
+        if sys.platform.startswith('linux'):
+            subprocess.run(['xdg-open', caminho])
+        elif sys.platform.startswith('win'):
+            os.startfile(caminho)
+        elif sys.platform.startswith('darwin'):
+            subprocess.run(['open', caminho])
+    except Exception as e:
+        print(f"[LOG ERRO] Erro ao abrir arquivo: {e}")
+
 # --- CONEXÃO E ESTRUTURA DO BANCO ---
 def conectar():
     conexao = sqlite3.connect('adega.db')
     cursor = conexao.cursor()
     
-    # Tabela de Produtos
     cursor.execute('''CREATE TABLE IF NOT EXISTS produtos 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, quantidade INTEGER, 
         preco_custo REAL, preco_venda REAL, preco_fardo REAL, unidades_por_fardo INTEGER, 
         codigo_barras TEXT, categoria TEXT)''')
     
-    # Tabela de Vendas (Histórico de Saída de Estoque)
     cursor.execute('''CREATE TABLE IF NOT EXISTS vendas 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, id_produto INTEGER, quantidade_vendida INTEGER, 
         valor_pago REAL, tipo_venda TEXT, metodo_pagamento TEXT, custo_na_venda REAL, data_venda TEXT, vendedor TEXT)''')
     
-    # Nova Tabela para Pagamentos Exatos (Suporta Pagamentos Parciais/Divididos)
     cursor.execute('''CREATE TABLE IF NOT EXISTS pagamentos_venda 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, forma_pagamento TEXT, valor REAL, usuario TEXT, data_pagamento TEXT)''')
 
-    # Tabelas Auxiliares e Sistema
     cursor.execute('''CREATE TABLE IF NOT EXISTS config (chave TEXT PRIMARY KEY, valor TEXT)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, login TEXT UNIQUE, senha TEXT, nivel TEXT)''')
@@ -125,7 +142,7 @@ def registrar_pagamento_detalhado(forma, valor, usuario="Sistema"):
                    (forma, valor, usuario))
     conn.commit(); conn.close()
 
-# --- RELATÓRIOS COM FILTRO ---
+# --- RELATÓRIOS COM FILTRO DE PERÍODO ---
 def calcular_lucro_hoje(d1, d2):
     conn = conectar(); cursor = conn.cursor()
     cursor.execute('SELECT SUM(valor_pago - custo_na_venda) FROM vendas WHERE data_venda BETWEEN ? AND ?', (d1, d2))
@@ -144,6 +161,23 @@ def resumo_vendas_por_vendedor(d1, d2):
 def produtos_mais_vendidos_hoje(d1, d2):
     conn = conectar(); cursor = conn.cursor()
     cursor.execute('SELECT p.nome, SUM(v.quantidade_vendida), v.tipo_venda FROM vendas v JOIN produtos p ON v.id_produto = p.id WHERE v.data_venda BETWEEN ? AND ? GROUP BY p.nome, v.tipo_venda', (d1, d2))
+    res = cursor.fetchall(); conn.close(); return res
+
+def vendas_por_filtro_produto(nome_produto, d1, d2):
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute('''
+        SELECT p.nome, SUM(v.quantidade_vendida), v.tipo_venda, SUM(v.valor_pago)
+        FROM vendas v 
+        JOIN produtos p ON v.id_produto = p.id 
+        WHERE p.nome LIKE ? AND v.data_venda BETWEEN ? AND ?
+        GROUP BY p.nome, v.tipo_venda
+    ''', ('%' + nome_produto + '%', d1, d2))
+    res = cursor.fetchall(); conn.close()
+    return res
+
+def listar_produtos_reposicao(limite=10):
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute('SELECT id, nome, categoria, quantidade, unidades_por_fardo FROM produtos WHERE quantidade <= ? ORDER BY quantidade ASC', (limite,))
     res = cursor.fetchall(); conn.close(); return res
 
 def obter_horarios():

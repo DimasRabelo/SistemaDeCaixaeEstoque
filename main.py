@@ -7,7 +7,6 @@ import sys, os
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-# --- FUNÇÕES AUXILIARES DE CONVERSÃO SEGURA ---
 def safe_int(valor, padrao=0):
     try:
         texto = str(valor).strip()
@@ -33,7 +32,6 @@ class Aplicativo(ctk.CTk):
         self.carrinho, self.pagamentos_venda = [], []
         self.after(100, self.abrir_login)
 
-    # --- TRATAMENTO E MÁSCARAS ---
     def formatar_data_brasil(self, event):
         widget = event.widget
         if event.keysym == "BackSpace": return
@@ -58,12 +56,10 @@ class Aplicativo(ctk.CTk):
         v_float = float(digitos) / 100
         widget.delete(0, 'end'); widget.insert(0, f"{v_float:.2f}")
 
-    # --- SEGURANÇA (MENSAGEM AO SAIR) ---
     def logout(self):
         if messagebox.askyesno("Sair", "Deseja realmente encerrar a sessão atual?"):
             os.execl(sys.executable, sys.executable, *sys.argv)
 
-    # --- LOGIN ---
     def abrir_login(self):
         self.login_win = ctk.CTkToplevel(self); self.login_win.title("Acesso Dimtech"); self.login_win.geometry("400x380")
         self.login_win.attributes("-topmost", True); self.login_win.protocol("WM_DELETE_WINDOW", self.quit)
@@ -132,7 +128,6 @@ class Aplicativo(ctk.CTk):
         self.en_qtd = ctk.CTkEntry(f_q, width=60, justify="center"); self.en_qtd.insert(0, "1"); self.en_qtd.pack(side="left", padx=5)
         ctk.CTkButton(f_q, text="ADICIONAR +", command=self.add_carro, fg_color="#1f538d", height=35, width=150, font=("Arial", 12, "bold")).pack(side="left", padx=5)
         
-        # --- PAINEL DIREITO DE VALORES ---
         f_dir = ctk.CTkFrame(f_main, fg_color="#2b2b2b", corner_radius=10, width=350); f_dir.pack(side="right", padx=20, pady=10, fill="y"); f_dir.pack_propagate(False) 
         self.lbl_tot = ctk.CTkLabel(f_dir, text="TOTAL: R$ 0,00", font=("Arial", 28, "bold"), text_color="yellow"); self.lbl_tot.pack(pady=10)
         
@@ -268,11 +263,9 @@ class Aplicativo(ctk.CTk):
             
             forma_principal = self.pagamentos_venda[0]['forma'] if self.pagamentos_venda else "Dinheiro"
 
-            # 1. Registra os itens vendidos para baixa de estoque e lista de produtos/vendedores
             for item in self.carrinho:
                 registrar_venda(item['id'], item['qtd'], item['tipo'], forma_principal, self.usuario_atual)
 
-            # 2. Registra CADA pagamento efetuado na tabela pagamentos_venda
             for pag in self.pagamentos_venda:
                 registrar_pagamento_detalhado(pag['forma'], pag['valor'], self.usuario_atual)
 
@@ -359,67 +352,154 @@ class Aplicativo(ctk.CTk):
 
     # --- ABA RELATÓRIO ---
     def configurar_aba_relatorio(self):
-        tab = self.tabview.tab("Relatório"); ctk.CTkLabel(tab, text="FECHAMENTO DE CAIXA", font=("Arial", 24, "bold")).pack(pady=10)
-        f_filtros = ctk.CTkFrame(tab, fg_color="transparent"); f_filtros.pack(pady=5)
+        tab = self.tabview.tab("Relatório")
+        ctk.CTkLabel(tab, text="FECHAMENTO DE CAIXA E RELATÓRIOS", font=("Arial", 22, "bold")).pack(pady=5)
         
-        ctk.CTkLabel(f_filtros, text="De:").pack(side="left", padx=5)
-        self.data_de = ctk.CTkEntry(f_filtros, width=110, placeholder_text="DD/MM/AAAA")
+        # Filtros de Data e Produto
+        f_filtros = ctk.CTkFrame(tab, fg_color="transparent"); f_filtros.pack(pady=2)
+        
+        ctk.CTkLabel(f_filtros, text="De:").pack(side="left", padx=2)
+        self.data_de = ctk.CTkEntry(f_filtros, width=100, placeholder_text="DD/MM/AAAA")
         self.data_de.insert(0, date.today().strftime('%d/%m/%Y'))
-        self.data_de.pack(side="left", padx=5)
+        self.data_de.pack(side="left", padx=2)
         self.data_de.bind("<KeyRelease>", self.formatar_data_brasil)
         
-        ctk.CTkLabel(f_filtros, text="Até:").pack(side="left", padx=5)
-        self.data_ate = ctk.CTkEntry(f_filtros, width=110, placeholder_text="DD/MM/AAAA")
+        ctk.CTkLabel(f_filtros, text="Até:").pack(side="left", padx=2)
+        self.data_ate = ctk.CTkEntry(f_filtros, width=100, placeholder_text="DD/MM/AAAA")
         self.data_ate.insert(0, date.today().strftime('%d/%m/%Y'))
-        self.data_ate.pack(side="left", padx=5)
+        self.data_ate.pack(side="left", padx=2)
         self.data_ate.bind("<KeyRelease>", self.formatar_data_brasil)
-        
-        self.lbl_horarios_info = ctk.CTkLabel(tab, text="Turno: --:--", font=("Arial", 16), text_color="gray"); self.lbl_horarios_info.pack()
-        f_res = ctk.CTkFrame(tab, fg_color="#2b2b2b", corner_radius=15, border_width=1, border_color="#555555"); f_res.pack(pady=10, padx=20, fill="x")
-        f_met = ctk.CTkFrame(f_res, fg_color="transparent"); f_met.pack(side="left", expand=True, pady=15, padx=30)
-        self.lbl_rel_din = ctk.CTkLabel(f_met, text="Dinheiro: R$ 0,00", font=("Arial", 15)); self.lbl_rel_din.pack(anchor="w")
-        self.lbl_rel_pix = ctk.CTkLabel(f_met, text="PIX: R$ 0,00", font=("Arial", 15)); self.lbl_rel_pix.pack(anchor="w")
-        self.lbl_rel_deb = ctk.CTkLabel(f_met, text="Débito: R$ 0,00", font=("Arial", 15)); self.lbl_rel_deb.pack(anchor="w")
-        self.lbl_rel_cre = ctk.CTkLabel(f_met, text="Crédito: R$ 0,00", font=("Arial", 15)); self.lbl_rel_cre.pack(anchor="w")
-        f_t = ctk.CTkFrame(f_res, fg_color="transparent"); f_t.pack(side="right", expand=True, pady=15, padx=30)
-        self.lbl_rel_geral = ctk.CTkLabel(f_t, text="FATURAMENTO: R$ 0,00", font=("Arial", 22, "bold"), text_color="yellow"); self.lbl_rel_geral.pack()
-        self.lbl_rel_lucro = ctk.CTkLabel(f_t, text="LUCRO LÍQUIDO: R$ 0,00", font=("Arial", 22, "bold"), text_color="#00FF7F"); self.lbl_rel_lucro.pack()
-        
-        # Botões de Ação na Aba Relatório
-        ctk.CTkButton(tab, text="🔄 FILTRAR E ATUALIZAR", command=lambda: self.atualizar_relatorio(True), height=40, width=300, font=("Arial", 14, "bold"), fg_color="#1f538d").pack(pady=5)
 
-        f_exp = ctk.CTkFrame(tab, fg_color="transparent")
-        f_exp.pack(pady=5)
-        ctk.CTkButton(f_exp, text="📄 SALVAR EM DOCX", command=self.exportar_docx, fg_color="#2B579A", width=145, height=35, font=("Arial", 12, "bold")).pack(side="left", padx=5)
-        ctk.CTkButton(f_exp, text="🔴 SALVAR EM PDF", command=self.exportar_pdf, fg_color="#B31412", width=145, height=35, font=("Arial", 12, "bold")).pack(side="left", padx=5)
+        ctk.CTkLabel(f_filtros, text="Filtrar Produto:").pack(side="left", padx=(10, 2))
+        self.en_filtro_prod = ctk.CTkEntry(f_filtros, width=160, placeholder_text="Digitar produto...")
+        self.en_filtro_prod.pack(side="left", padx=2)
+        # Filtro em TEMPO REAL ao digitar cada letra
+        self.en_filtro_prod.bind("<KeyRelease>", lambda e: self.atualizar_relatorio(False))
 
-        self.txt_rel_itens = ctk.CTkTextbox(tab, width=1000, height=350, font=("Courier New", 12)); self.txt_rel_itens.pack(pady=10)
+        self.lbl_horarios_info = ctk.CTkLabel(tab, text="Turno: --:--", font=("Arial", 14), text_color="gray"); self.lbl_horarios_info.pack()
+        
+        # Quadro de Valores
+        f_res = ctk.CTkFrame(tab, fg_color="#2b2b2b", corner_radius=12, border_width=1, border_color="#555555")
+        f_res.pack(pady=5, padx=20, fill="x")
+        
+        f_met = ctk.CTkFrame(f_res, fg_color="transparent"); f_met.pack(side="left", expand=True, pady=10, padx=20)
+        self.lbl_rel_din = ctk.CTkLabel(f_met, text="Dinheiro: R$ 0,00", font=("Arial", 14)); self.lbl_rel_din.pack(anchor="w")
+        self.lbl_rel_pix = ctk.CTkLabel(f_met, text="PIX: R$ 0,00", font=("Arial", 14)); self.lbl_rel_pix.pack(anchor="w")
+        self.lbl_rel_deb = ctk.CTkLabel(f_met, text="Débito: R$ 0,00", font=("Arial", 14)); self.lbl_rel_deb.pack(anchor="w")
+        self.lbl_rel_cre = ctk.CTkLabel(f_met, text="Crédito: R$ 0,00", font=("Arial", 14)); self.lbl_rel_cre.pack(anchor="w")
+        
+        f_t = ctk.CTkFrame(f_res, fg_color="transparent"); f_t.pack(side="right", expand=True, pady=10, padx=20)
+        self.lbl_rel_geral = ctk.CTkLabel(f_t, text="FATURAMENTO: R$ 0,00", font=("Arial", 20, "bold"), text_color="yellow"); self.lbl_rel_geral.pack()
+        self.lbl_rel_lucro = ctk.CTkLabel(f_t, text="LUCRO LÍQUIDO: R$ 0,00", font=("Arial", 20, "bold"), text_color="#00FF7F"); self.lbl_rel_lucro.pack()
+        
+        # Botões de Ação
+        f_btns_rel = ctk.CTkFrame(tab, fg_color="transparent")
+        f_btns_rel.pack(pady=5)
+        
+        ctk.CTkButton(f_btns_rel, text="🔄 VENDAS PERÍODO", command=lambda: self.atualizar_relatorio(True), height=35, width=150, font=("Arial", 12, "bold"), fg_color="#1f538d").pack(side="left", padx=5)
+        ctk.CTkButton(f_btns_rel, text="📦 REPOSIÇÃO ESTOQUE", command=self.gerar_relatorio_reposicao, height=35, width=170, font=("Arial", 12, "bold"), fg_color="#D97706").pack(side="left", padx=5)
+        ctk.CTkButton(f_btns_rel, text="📄 SALVAR DOCX", command=self.exportar_docx, fg_color="#2B579A", width=140, height=35, font=("Arial", 12, "bold")).pack(side="left", padx=5)
+        ctk.CTkButton(f_btns_rel, text="🔴 SALVAR PDF", command=self.exportar_pdf, fg_color="#B31412", width=140, height=35, font=("Arial", 12, "bold")).pack(side="left", padx=5)
+
+        self.txt_rel_itens = ctk.CTkTextbox(tab, width=1000, height=350, font=("Courier New", 12)); self.txt_rel_itens.pack(pady=5)
+
+    def atualizar_relatorio(self, manual=False):
+        try:
+            self.tipo_relatorio_atual = "VENDAS"
+            ab, fe = obter_horarios(); self.lbl_horarios_info.configure(text=f"Turno: {ab} às {fe}")
+            d1, d2 = self.data_br_para_sql(self.data_de.get()) + " 00:00:00", self.data_br_para_sql(self.data_ate.get()) + " 23:59:59"
+            
+            din = resumo_vendas_por_metodo("Dinheiro", d1, d2); pix = resumo_vendas_por_metodo("PIX", d1, d2)
+            deb = resumo_vendas_por_metodo("Débito", d1, d2); cre = resumo_vendas_por_metodo("Crédito", d1, d2)
+            total = din + pix + deb + cre; luc = calcular_lucro_hoje(d1, d2)
+            
+            self.lbl_rel_din.configure(text=f"Dinheiro: R$ {din:.2f}"); self.lbl_rel_pix.configure(text=f"PIX: R$ {pix:.2f}")
+            self.lbl_rel_deb.configure(text=f"Débito: R$ {deb:.2f}"); self.lbl_rel_cre.configure(text=f"Crédito: R$ {cre:.2f}")
+            self.lbl_rel_geral.configure(text=f"FATURAMENTO: R$ {total:.2f}"); self.lbl_rel_lucro.configure(text=f"LUCRO: R$ {luc:.2f}")
+            
+            self.txt_rel_itens.delete("0.0", "end")
+            
+            filtro_prod = self.en_filtro_prod.get().strip()
+            if filtro_prod:
+                self.txt_rel_itens.insert("end", f"RELATÓRIO DE VENDAS PERÍODO ({self.data_de.get()} até {self.data_ate.get()}) - FILTRO: '{filtro_prod}'\n" + "="*70 + "\n\n")
+                self.txt_rel_itens.insert("end", f"{'PRODUTO':<30} | {'QTD':<5} | {'TIPO':<8} | {'TOTAL':>10}\n")
+                self.txt_rel_itens.insert("end", "-"*65 + "\n")
+                prods_filtrados = vendas_por_filtro_produto(filtro_prod, d1, d2)
+                for p in prods_filtrados:
+                    self.txt_rel_itens.insert("end", f"{p[0][:30]:<30} | {p[1]:<5} | {p[2]:<8} | R$ {p[3]:>8.2f}\n")
+            else:
+                self.txt_rel_itens.insert("end", f"RELATÓRIO DE VENDAS PERÍODO: {self.data_de.get()} até {self.data_ate.get()}\n" + "="*70 + "\n\n")
+                self.txt_rel_itens.insert("end", f"VENDEDORES:\n" + "-"*45 + "\n")
+                for v in resumo_vendas_por_vendedor(d1, d2): self.txt_rel_itens.insert("end", f"{v[0]:<25} | R$ {v[1]:>10.2f}\n")
+                self.txt_rel_itens.insert("end", f"\nPRODUTOS VENDIDOS:\n" + "-"*45 + "\n")
+                for p in produtos_mais_vendidos_hoje(d1, d2): self.txt_rel_itens.insert("end", f"{p[0][:25]:<25} | {p[1]:<5} | {p[2]}\n")
+                
+            if manual: messagebox.showinfo("Filtro", f"Relatório de {self.data_de.get()} a {self.data_ate.get()} atualizado!")
+        except Exception as e:
+            if manual: messagebox.showerror("Erro", str(e))
+
+    def gerar_relatorio_reposicao(self):
+        try:
+            self.tipo_relatorio_atual = "REPOSICAO"
+            prods = listar_produtos_reposicao(limite=10)
+            
+            self.txt_rel_itens.delete("0.0", "end")
+            self.txt_rel_itens.insert("end", "RELATÓRIO DE REPOSIÇÃO DE ESTOQUE (PRODUTOS <= 10 UN)\n")
+            self.txt_rel_itens.insert("end", "="*80 + "\n\n")
+            
+            header = f"{'ID':<4} | {'PRODUTO':<30} | {'CATEGORIA':<15} | {'ESTOQUE UN':<10} | {'VOLUMES':<15}\n"
+            self.txt_rel_itens.insert("end", header)
+            self.txt_rel_itens.insert("end", "-"*80 + "\n")
+            
+            if not prods:
+                self.txt_rel_itens.insert("end", "\n✅ Nenhum produto com estoque crítico no momento!\n")
+            else:
+                for p in prods:
+                    id_p, nome, cat, qtd, un_f = p[0], str(p[1]), str(p[2] or "Geral"), p[3], p[4] if p[4] and p[4]>0 else 1
+                    fardos = qtd // un_f
+                    sobra = qtd % un_f
+                    vol_txt = f"{fardos} fardos / {sobra} un"
+                    linha = f"{id_p:<4} | {nome[:30]:<30} | {cat[:15]:<15} | {qtd:<10} | {vol_txt:<15}\n"
+                    self.txt_rel_itens.insert("end", linha)
+                    
+            messagebox.showinfo("Reposição", "Relatório de Reposição de Estoque gerado!")
+        except Exception as e:
+            messagebox.showerror("Erro", str(e))
 
     def obter_dados_relatorio_atual(self):
         d1_str = self.data_de.get()
         d2_str = self.data_ate.get()
         d1, d2 = self.data_br_para_sql(d1_str) + " 00:00:00", self.data_br_para_sql(d2_str) + " 23:59:59"
         
-        din = resumo_vendas_por_metodo("Dinheiro", d1, d2)
-        pix = resumo_vendas_por_metodo("PIX", d1, d2)
-        deb = resumo_vendas_por_metodo("Débito", d1, d2)
-        cre = resumo_vendas_por_metodo("Crédito", d1, d2)
-        
-        faturamento = din + pix + deb + cre
-        lucro = calcular_lucro_hoje(d1, d2)
-        metodos = {"Dinheiro": din, "PIX": pix, "Débito": deb, "Crédito": cre}
         texto_detalhes = self.txt_rel_itens.get("1.0", "end").strip()
-        periodo = f"{d1_str} até {d2_str}"
         
-        return periodo, faturamento, lucro, metodos, texto_detalhes
+        if getattr(self, 'tipo_relatorio_atual', 'VENDAS') == 'REPOSICAO':
+            titulo = "Relatório de Reposição de Estoque"
+            periodo = None
+            faturamento = None
+            lucro = None
+            metodos = None
+        else:
+            titulo = "Fechamento de Caixa"
+            periodo = f"{d1_str} até {d2_str}"
+            din = resumo_vendas_por_metodo("Dinheiro", d1, d2)
+            pix = resumo_vendas_por_metodo("PIX", d1, d2)
+            deb = resumo_vendas_por_metodo("Débito", d1, d2)
+            cre = resumo_vendas_por_metodo("Crédito", d1, d2)
+            faturamento = din + pix + deb + cre
+            lucro = calcular_lucro_hoje(d1, d2)
+            metodos = {"Dinheiro": din, "PIX": pix, "Débito": deb, "Crédito": cre}
+            
+        return titulo, periodo, faturamento, lucro, metodos, texto_detalhes
 
     def exportar_docx(self):
         try:
             caminho = filedialog.asksaveasfilename(defaultextension=".docx", filetypes=[("Documento Word", "*.docx")])
             if caminho:
-                periodo, fat, luc, metodos, texto = self.obter_dados_relatorio_atual()
-                exportar_relatorio_docx(caminho, periodo, fat, luc, metodos, texto)
-                messagebox.showinfo("Sucesso", "Relatório exportado em DOCX com sucesso!")
+                titulo, periodo, fat, luc, metodos, texto = self.obter_dados_relatorio_atual()
+                exportar_relatorio_docx(caminho, titulo, periodo, fat, luc, metodos, texto)
+                if messagebox.askyesno("Sucesso", "Relatório salvo em DOCX com sucesso!\n\nDeseja abrir o arquivo agora?"):
+                    abrir_arquivo_gerado(caminho)
         except Exception as e:
             messagebox.showerror("Erro", f"Falha ao exportar DOCX: {e}")
 
@@ -427,30 +507,12 @@ class Aplicativo(ctk.CTk):
         try:
             caminho = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("Arquivo PDF", "*.pdf")])
             if caminho:
-                periodo, fat, luc, metodos, texto = self.obter_dados_relatorio_atual()
-                exportar_relatorio_pdf(caminho, periodo, fat, luc, metodos, texto)
-                messagebox.showinfo("Sucesso", "Relatório exportado em PDF com sucesso!")
+                titulo, periodo, fat, luc, metodos, texto = self.obter_dados_relatorio_atual()
+                exportar_relatorio_pdf(caminho, titulo, periodo, fat, luc, metodos, texto)
+                if messagebox.askyesno("Sucesso", "Relatório salvo em PDF com sucesso!\n\nDeseja abrir o arquivo agora?"):
+                    abrir_arquivo_gerado(caminho)
         except Exception as e:
             messagebox.showerror("Erro", f"Falha ao exportar PDF: {e}")
-
-    def atualizar_relatorio(self, manual=False):
-        try:
-            ab, fe = obter_horarios(); self.lbl_horarios_info.configure(text=f"Turno: {ab} às {fe}")
-            d1, d2 = self.data_br_para_sql(self.data_de.get()) + " 00:00:00", self.data_br_para_sql(self.data_ate.get()) + " 23:59:59"
-            din = resumo_vendas_por_metodo("Dinheiro", d1, d2); pix = resumo_vendas_por_metodo("PIX", d1, d2)
-            deb = resumo_vendas_por_metodo("Débito", d1, d2); cre = resumo_vendas_por_metodo("Crédito", d1, d2)
-            total = din + pix + deb + cre; luc = calcular_lucro_hoje(d1, d2)
-            self.lbl_rel_din.configure(text=f"Dinheiro: R$ {din:.2f}"); self.lbl_rel_pix.configure(text=f"PIX: R$ {pix:.2f}")
-            self.lbl_rel_deb.configure(text=f"Débito: R$ {deb:.2f}"); self.lbl_rel_cre.configure(text=f"Crédito: R$ {cre:.2f}")
-            self.lbl_rel_geral.configure(text=f"FATURAMENTO: R$ {total:.2f}"); self.lbl_rel_lucro.configure(text=f"LUCRO: R$ {luc:.2f}")
-            self.txt_rel_itens.delete("0.0", "end")
-            self.txt_rel_itens.insert("end", f"VENDEDORES:\n" + "-"*45 + "\n")
-            for v in resumo_vendas_por_vendedor(d1, d2): self.txt_rel_itens.insert("end", f"{v[0]:<25} | R$ {v[1]:>10.2f}\n")
-            self.txt_rel_itens.insert("end", f"\nPRODUTOS:\n" + "-"*45 + "\n")
-            for p in produtos_mais_vendidos_hoje(d1, d2): self.txt_rel_itens.insert("end", f"{p[0][:25]:<25} | {p[1]:<5} | {p[2]}\n")
-            if manual: messagebox.showinfo("BI", "Dados filtrados com sucesso!")
-        except Exception as e:
-            if manual: messagebox.showerror("Erro", str(e))
 
     # --- ABA CADASTRAR ---
     def configurar_aba_cadastrar(self):
