@@ -6,6 +6,41 @@ from reportlab.pdfgen import canvas
 import subprocess
 import os
 import sys
+import shutil
+import threading
+
+# --- ROTINA DE BACKUP AUTOMÁTICO (TERABOX / NUVEM) ---
+def fazer_backup_terabox():
+    """Realiza a cópia do banco de dados para a pasta sincronizada do TeraBox em segundo plano."""
+    def copiar():
+        try:
+            # Detecta o sistema operacional para definir a pasta da nuvem
+            if sys.platform.startswith('win'):
+                # Caminho padrão no Windows do cliente
+                pasta_destino = r"C:\TeraBoxBackup"
+            else:
+                # Caminho no Linux (procura pasta TeraBox no diretório do usuário)
+                home_dir = os.path.expanduser("~")
+                pasta_destino = os.path.join(home_dir, "TeraBox")
+
+            # Cria a pasta caso ainda não exista
+            if not os.path.exists(pasta_destino):
+                os.makedirs(pasta_destino)
+
+            # 1. Copia para o arquivo fixo de backup (atualizado a cada venda)
+            shutil.copy2("adega.db", os.path.join(pasta_destino, "adega_backup.db"))
+
+            # 2. Copia com timestamp (histórico de restauração)
+            data_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            shutil.copy2("adega.db", os.path.join(pasta_destino, f"adega_{data_str}.db"))
+
+            print(f"[BACKUP OK] Banco de dados salvo na pasta da nuvem às {data_str}")
+        except Exception as e:
+            print(f"[ERRO BACKUP] Falha ao realizar backup: {e}")
+
+    # Dispara a cópia em uma Thread separada para NUNCA travar a tela do caixa
+    threading.Thread(target=copiar, daemon=True).start()
+
 
 # --- FUNÇÕES DE EXPORTAÇÃO DE RELATÓRIO ---
 def exportar_relatorio_docx(caminho_arquivo, titulo, periodo, faturamento, lucro, metodos, texto_detalhes):
@@ -135,6 +170,9 @@ def registrar_venda(id_p, qtd, tipo, metodo, vendedor="Sistema"):
                    (id_p, qtd, tipo, metodo, c_tot, val, vendedor))
     cursor.execute("UPDATE produtos SET quantidade = quantidade - ? WHERE id = ?", (q_est, id_p))
     conn.commit(); conn.close()
+
+    # Executa o backup automático para a nuvem a cada venda concluída
+    fazer_backup_terabox()
 
 def registrar_pagamento_detalhado(forma, valor, usuario="Sistema"):
     conn = conectar(); cursor = conn.cursor()

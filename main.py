@@ -130,7 +130,7 @@ class Aplicativo(ctk.CTk):
 
         self.login_win.attributes("-topmost", True); self.login_win.protocol("WM_DELETE_WINDOW", self.quit)
 
-        ctk.CTkLabel(self.login_win, text="ADEGA DO OH RAÇA", font=("Arial", 20, "bold")).pack(pady=20)
+        ctk.CTkLabel(self.login_win, text="SISTEMA DE CAIXA", font=("Arial", 20, "bold")).pack(pady=20)
 
         ctk.CTkLabel(self.login_win, text="Por favor, identifique-se:").pack()
 
