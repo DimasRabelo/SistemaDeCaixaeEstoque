@@ -8,37 +8,46 @@ import os
 import sys
 import shutil
 import threading
+import struct
 
 # --- ROTINA DE BACKUP AUTOMÁTICO (GOOGLE DRIVE / RCLONE) ---
 def fazer_backup_nuvem():
-    """Realiza a cópia do banco de dados e sincroniza com o Google Drive (Linux e Windows)."""
+    """Realiza a cópia do banco de dados e sincroniza com o Google Drive."""
     def copiar():
         try:
             home_dir = os.path.expanduser("~")
 
-            # Define o caminho de acordo com o sistema operacional
+            # Define o caminho de destino e escolhe o executável correto
             if sys.platform.startswith('linux'):
                 pasta_destino = os.path.join(home_dir, "GoogleDrive", "AdegaBackup")
+                executavel_rclone = "rclone"
             elif sys.platform.startswith('win'):
                 pasta_destino = os.path.join(home_dir, "Documents", "AdegaBackup")
+                
+                # Detecta se o Python/Windows é 32-bit ou 64-bit
+                is_64bit = struct.calcsize("P") * 8 == 64
+                nome_exe = "rclone64.exe" if is_64bit else "rclone32.exe"
+                
+                caminho_local_rclone = os.path.join(os.getcwd(), nome_exe)
+                if os.path.exists(caminho_local_rclone):
+                    executavel_rclone = caminho_local_rclone
+                else:
+                    executavel_rclone = nome_exe
             else:
                 pasta_destino = os.path.join(home_dir, "AdegaBackup")
+                executavel_rclone = "rclone"
 
             if not os.path.exists(pasta_destino):
                 os.makedirs(pasta_destino)
 
-            # 1. Copia fixa
+            # Copias locais
             shutil.copy2("adega.db", os.path.join(pasta_destino, "adega_backup.db"))
-
-            # 2. Copia histórica
             data_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             shutil.copy2("adega.db", os.path.join(pasta_destino, f"adega_{data_str}.db"))
 
-            print(f"[BACKUP LOCAL OK] Cópia local gravada em {data_str}")
-
-            # 3. Executa o Rclone independente do sistema operacional
+            # Executa o Rclone detectado
             comando_rclone = [
-                "rclone", "sync", pasta_destino, "gdrive:AdegaBackup",
+                executavel_rclone, "sync", pasta_destino, "gdrive:AdegaBackup",
                 "--tpslimit", "5",
                 "--fast-list"
             ]
