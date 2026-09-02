@@ -89,6 +89,10 @@ class Aplicativo(ctk.CTk):
         ctk.CTkButton(f, text="SAIR / TROCAR USUÁRIO", width=180, height=32, fg_color="#A52A2A", command=self.logout).pack(side="right")
         self.tabview = ctk.CTkTabview(self, width=1150, height=820, command=self.ao_trocar_aba); self.tabview.pack(padx=10, pady=10, expand=True, fill="both")
         for aba in ["Vender", "Cadastrar", "Estoque", "Relatório", "Ajustes", "Usuários"]: self.tabview.add(aba)
+        
+        # Ajuste do tamanho da fonte dos botões superiores das abas
+        self.tabview._segmented_button.configure(font=("Arial", 18, "bold"))
+        
         self.configurar_aba_vender(); self.configurar_aba_cadastrar(); self.configurar_aba_estoque(); self.configurar_aba_relatorio(); self.configurar_aba_ajustes(); self.configurar_aba_usuarios() 
         self.carregar_dados(); self.deiconify() 
 
@@ -116,18 +120,44 @@ class Aplicativo(ctk.CTk):
         f_esq = ctk.CTkFrame(f_main, fg_color="transparent", width=450); f_esq.pack(side="left", padx=20, pady=10, fill="both", expand=True)
         ctk.CTkLabel(f_esq, text="CARRINHO DE COMPRAS", font=("Arial", 14, "bold"), text_color="orange").pack(pady=(5,0))
         self.txt_carro_visual = ctk.CTkTextbox(f_esq, width=430, font=("Courier New", 12), border_width=1, border_color="#555555"); self.txt_carro_visual.pack(pady=(0, 10), fill="both", expand=True)
+        
         f_rem = ctk.CTkFrame(f_esq, fg_color="#333333", corner_radius=10, height=50); f_rem.pack(pady=5, padx=10, fill="x"); f_rem.pack_propagate(False)
         ctk.CTkLabel(f_rem, text="Nº:").pack(side="left", padx=(10, 2))
         self.en_rem_idx = ctk.CTkEntry(f_rem, width=40, justify="center"); self.en_rem_idx.pack(side="left", padx=2)
         ctk.CTkButton(f_rem, text="REMOVER", fg_color="#A52A2A", width=80, font=("Arial", 12, "bold"), command=self.remover_item_carrinho).pack(side="left", padx=5)
         ctk.CTkLabel(f_rem, text="|", text_color="gray").pack(side="left", padx=5)
         self.tp_venda = ctk.CTkSegmentedButton(f_rem, values=["Unidade", "Fardo", "Caixa"], width=250, height=32, font=("Arial", 12, "bold")); self.tp_venda.set("Unidade"); self.tp_venda.pack(side="left", padx=10)
+        
         ctk.CTkLabel(f_esq, text="ADICIONAR PRODUTO", font=("Arial", 16, "bold")).pack(pady=(10, 2))
-        self.en_busca = ctk.CTkEntry(f_esq, placeholder_text="Nome ou Bipar ou Digitar Código...", width=350); self.en_busca.pack(pady=2); self.en_busca.bind("<KeyRelease>", self.filtrar_venda); self.en_busca.bind("<Return>", self.ao_pressionar_enter_venda)
-        self.res_venda = ctk.CTkScrollableFrame(f_esq, width=320, height=50, label_text="Resultados", fg_color="#2b2b2b", border_width=2, border_color="orange"); self.res_venda.pack(pady=2, padx=10)
-        f_q = ctk.CTkFrame(f_esq, fg_color="transparent"); f_q.pack(pady=2)
-        self.en_qtd = ctk.CTkEntry(f_q, width=60, justify="center"); self.en_qtd.insert(0, "1"); self.en_qtd.pack(side="left", padx=5)
-        ctk.CTkButton(f_q, text="ADICIONAR +", command=self.add_carro, fg_color="#1f538d", height=35, width=150, font=("Arial", 12, "bold")).pack(side="left", padx=5)
+        
+        # Quadro unificado: Quantidade + Busca + Botão Adicionar
+        f_busca_qtd = ctk.CTkFrame(f_esq, fg_color="transparent")
+        f_busca_qtd.pack(pady=5)
+        
+        ctk.CTkLabel(f_busca_qtd, text="Qtd:", font=("Arial", 12, "bold")).pack(side="left", padx=(0, 2))
+        self.en_qtd = ctk.CTkEntry(f_busca_qtd, width=50, justify="center")
+        self.en_qtd.insert(0, "1")
+        self.en_qtd.pack(side="left", padx=(0, 5))
+        # Permite dar Enter dentro do campo de quantidade
+        self.en_qtd.bind("<Return>", self.ao_pressionar_enter_venda)
+        
+        self.en_busca = ctk.CTkEntry(f_busca_qtd, placeholder_text="Nome ou Bipar Código...", width=240)
+        self.en_busca.pack(side="left", padx=(0, 5))
+        self.en_busca.bind("<KeyRelease>", self.filtrar_venda)
+        self.en_busca.bind("<Return>", self.ao_pressionar_enter_venda)
+        
+        # Botão explicito para adicionar ao lado direito
+        btn_add = ctk.CTkButton(
+            f_busca_qtd, 
+            text="+ ADD", 
+            width=70, 
+            fg_color="#1f538d", 
+            font=("Arial", 12, "bold"), 
+            command=lambda: self.ao_pressionar_enter_venda(None)
+        )
+        btn_add.pack(side="left")
+        
+        self.res_venda = ctk.CTkScrollableFrame(f_esq, width=380, height=100, label_text="Resultados", fg_color="#2b2b2b", border_width=2, border_color="orange")
         
         f_dir = ctk.CTkFrame(f_main, fg_color="#2b2b2b", corner_radius=10, width=350); f_dir.pack(side="right", padx=20, pady=10, fill="y"); f_dir.pack_propagate(False) 
         self.lbl_tot = ctk.CTkLabel(f_dir, text="TOTAL: R$ 0,00", font=("Arial", 28, "bold"), text_color="yellow"); self.lbl_tot.pack(pady=10)
@@ -146,6 +176,9 @@ class Aplicativo(ctk.CTk):
 
     def ao_pressionar_enter_venda(self, e):
         t = self.en_busca.get().strip()
+        if not t:
+            return
+            
         if t.isdigit():
             p = buscar_produto_por_codigo(t)
             if p:
@@ -153,10 +186,17 @@ class Aplicativo(ctk.CTk):
                 self.en_busca.insert(0, p[1])
                 self.add_carro()
             else:
-                # Código bipado não encontrado: abre popup para produto avulso
                 self.solicitar_produto_avulso(codigo_bipado=t)
         else:
-            self.add_carro()
+            idp = buscar_id_por_nome_exato(t)
+            if idp:
+                self.add_carro()
+            else:
+                prods = buscar_produto_por_nome(t)
+                if prods:
+                    messagebox.showwarning("Atenção", "Escreva o nome completo do produto para adicionar na lista (ou clique nele na lista de resultados).")
+                else:
+                    self.solicitar_produto_avulso(codigo_bipado="")
 
     def solicitar_produto_avulso(self, codigo_bipado=""):
         q = safe_int(self.en_qtd.get(), padrao=1)
@@ -186,7 +226,7 @@ class Aplicativo(ctk.CTk):
                 return
             
             self.carrinho.append({
-                'id': 0, # ID 0 reservado para itens sem cadastro
+                'id': 0,
                 'nome': f"[AVULSO] {nome_prod}",
                 'qtd': q,
                 'tipo': 'Unidade',
@@ -206,57 +246,6 @@ class Aplicativo(ctk.CTk):
         ctk.CTkButton(pop, text="INCLUIR NO CAIXA", fg_color="green", height=40, font=("Arial", 14, "bold"), command=confirmar).pack(pady=15)
         pop.bind("<Return>", lambda e: confirmar())
         self.after(300, lambda: en_nome.focus_set())
-
-    def add_carro(self):
-        try:
-            n = self.en_busca.get().strip()
-            q = safe_int(self.en_qtd.get(), padrao=1)
-            t = self.tp_venda.get()
-
-            if not n or q <= 0:
-                return
-
-            idp = buscar_id_por_nome_exato(n)
-            
-            if idp:
-                p = buscar_produto_por_id(idp)
-                if not p: return
-
-                if t in ['Fardo', 'Caixa', 'Pacote']:
-                    if p[5] and p[5] > 0:
-                        preco_aplicado = p[5]
-                    else:
-                        unidades = p[6] if p[6] and p[6] > 0 else 1
-                        preco_aplicado = p[4] * unidades
-                else:
-                    preco_aplicado = p[4]
-
-                ex = next((i for i in self.carrinho if i['id'] == idp and i['tipo'] == t), None)
-                if ex:
-                    ex['qtd'] += q
-                    ex['sub'] = ex['qtd'] * ex['unit']
-                else:
-                    self.carrinho.append({
-                        'id': idp, 
-                        'nome': n, 
-                        'qtd': q, 
-                        'tipo': t, 
-                        'unit': preco_aplicado, 
-                        'sub': preco_aplicado * q
-                    })
-                
-                self.up_carro_visual()
-                self.calc_venda()
-                
-                self.en_busca.delete(0, 'end')
-                self.en_qtd.delete(0, 'end')
-                self.en_qtd.insert(0, "1")
-                self.en_busca.focus_set()
-            else:
-                # Se o operador digitou um nome manual que não existe
-                self.solicitar_produto_avulso(codigo_bipado="")
-        except Exception as e:
-            print(f"[LOG ERRO] Erro ao adicionar produto ao carrinho: {e}")
 
     def remover_item_carrinho(self):
         try:
@@ -775,10 +764,90 @@ class Aplicativo(ctk.CTk):
         ctk.CTkButton(f, text="SALVAR", command=self.acao_salvar_ajustes, fg_color="orange", width=250, height=45).pack(pady=40)
 
     # --- MÉTODOS DE APOIO ---
+    def selecionar_e_adicionar_pela_lista(self, nome_produto):
+        self.en_busca.delete(0, 'end')
+        self.en_busca.insert(0, nome_produto)
+        self.add_carro(manter_lista=True)
+        self.filtrar_venda(None)
+
     def filtrar_venda(self, e):
-        [w.destroy() for w in self.res_venda.winfo_children()]; n = self.en_busca.get().strip()
+        for w in self.res_venda.winfo_children():
+            w.destroy()
+            
+        n = self.en_busca.get().strip()
+        
         if n and not n.isdigit():
-            for p in buscar_produto_por_nome(n): ctk.CTkButton(self.res_venda, text=p[1], command=lambda np=p[1]: [self.en_busca.delete(0,'end'), self.en_busca.insert(0, np), self.add_carro()]).pack(fill="x")
+            prods = buscar_produto_por_nome(n)
+            if prods:
+                self.res_venda.pack(pady=2, padx=10)
+                for p in prods: 
+                    ctk.CTkButton(
+                        self.res_venda, 
+                        text=p[1], 
+                        command=lambda np=p[1]: self.selecionar_e_adicionar_pela_lista(np)
+                    ).pack(fill="x", pady=1)
+            else:
+                self.res_venda.pack_forget()
+        else:
+            self.res_venda.pack_forget()
+
+    def add_carro(self, manter_lista=False):
+        try:
+            n = self.en_busca.get().strip()
+            q = safe_int(self.en_qtd.get(), padrao=1)
+            t = self.tp_venda.get()
+
+            if not n or q <= 0:
+                return
+
+            idp = buscar_id_por_nome_exato(n)
+            
+            if idp:
+                p = buscar_produto_por_id(idp)
+                if not p: return
+
+                if t in ['Fardo', 'Caixa', 'Pacote']:
+                    if p[5] and p[5] > 0:
+                        preco_aplicado = p[5]
+                    else:
+                        unidades = p[6] if p[6] and p[6] > 0 else 1
+                        preco_aplicado = p[4] * unidades
+                else:
+                    preco_aplicado = p[4]
+
+                ex = next((i for i in self.carrinho if i['id'] == idp and i['tipo'] == t), None)
+                if ex:
+                    ex['qtd'] += q
+                    ex['sub'] = ex['qtd'] * ex['unit']
+                else:
+                    self.carrinho.append({
+                        'id': idp, 
+                        'nome': p[1], 
+                        'qtd': q, 
+                        'tipo': t, 
+                        'unit': preco_aplicado, 
+                        'sub': preco_aplicado * q
+                    })
+                
+                self.up_carro_visual()
+                self.calc_venda()
+                
+                self.en_qtd.delete(0, 'end')
+                self.en_qtd.insert(0, "1")
+
+                if not manter_lista:
+                    self.en_busca.delete(0, 'end')
+                    self.res_venda.pack_forget()
+
+                self.en_busca.focus_set()
+            else:
+                prods = buscar_produto_por_nome(n)
+                if prods:
+                    messagebox.showwarning("Atenção", "Escreva o nome completo do produto para adicionar na lista.")
+                else:
+                    self.solicitar_produto_avulso(codigo_bipado="")
+        except Exception as e:
+            print(f"[LOG ERRO] Erro ao adicionar produto ao carrinho: {e}")
 
     def up_carro_visual(self):
         self.txt_carro_visual.delete("1.0", "end"); pg = sum(p['valor'] for p in self.pagamentos_venda); ac = 0.0
