@@ -9,38 +9,51 @@ import sys
 import shutil
 import threading
 
-# --- ROTINA DE BACKUP AUTOMÁTICO (TERABOX / NUVEM) ---
-def fazer_backup_terabox():
-    """Realiza a cópia do banco de dados para a pasta sincronizada do TeraBox em segundo plano."""
+# --- ROTINA DE BACKUP AUTOMÁTICO (GOOGLE DRIVE / RCLONE) ---
+def fazer_backup_nuvem():
+    """Realiza a cópia do banco de dados e sincroniza com o Google Drive (Linux e Windows)."""
     def copiar():
         try:
-            # Detecta o sistema operacional para definir a pasta da nuvem
-            if sys.platform.startswith('win'):
-                # Caminho padrão no Windows do cliente
-                pasta_destino = r"C:\TeraBoxBackup"
-            else:
-                # Caminho no Linux (procura pasta TeraBox no diretório do usuário)
-                home_dir = os.path.expanduser("~")
-                pasta_destino = os.path.join(home_dir, "TeraBox")
+            home_dir = os.path.expanduser("~")
 
-            # Cria a pasta caso ainda não exista
+            # Define o caminho de acordo com o sistema operacional
+            if sys.platform.startswith('linux'):
+                pasta_destino = os.path.join(home_dir, "GoogleDrive", "AdegaBackup")
+            elif sys.platform.startswith('win'):
+                pasta_destino = os.path.join(home_dir, "Documents", "AdegaBackup")
+            else:
+                pasta_destino = os.path.join(home_dir, "AdegaBackup")
+
             if not os.path.exists(pasta_destino):
                 os.makedirs(pasta_destino)
 
-            # 1. Copia para o arquivo fixo de backup (atualizado a cada venda)
+            # 1. Copia fixa
             shutil.copy2("adega.db", os.path.join(pasta_destino, "adega_backup.db"))
 
-            # 2. Copia com timestamp (histórico de restauração)
+            # 2. Copia histórica
             data_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             shutil.copy2("adega.db", os.path.join(pasta_destino, f"adega_{data_str}.db"))
 
-            print(f"[BACKUP OK] Banco de dados salvo na pasta da nuvem às {data_str}")
+            print(f"[BACKUP LOCAL OK] Cópia local gravada em {data_str}")
+
+            # 3. Executa o Rclone independente do sistema operacional
+            comando_rclone = [
+                "rclone", "sync", pasta_destino, "gdrive:AdegaBackup",
+                "--tpslimit", "5",
+                "--fast-list"
+            ]
+            
+            resultado = subprocess.run(comando_rclone, capture_output=True, text=True)
+
+            if resultado.returncode == 0:
+                print(f"[BACKUP NUVEM OK] Sincronizado com o Google Drive às {data_str}")
+            else:
+                print(f"[AVISO NUVEM] Falha pontual na sincronização remota. Backup local preservado.")
+
         except Exception as e:
             print(f"[ERRO BACKUP] Falha ao realizar backup: {e}")
 
-    # Dispara a cópia em uma Thread separada para NUNCA travar a tela do caixa
     threading.Thread(target=copiar, daemon=True).start()
-
 
 # --- FUNÇÕES DE EXPORTAÇÃO DE RELATÓRIO ---
 def exportar_relatorio_docx(caminho_arquivo, titulo, periodo, faturamento, lucro, metodos, texto_detalhes):
@@ -138,6 +151,11 @@ def conectar():
     cursor.execute('''CREATE TABLE IF NOT EXISTS logs 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_nome TEXT, acao TEXT, data_hora TEXT)''')
 
+    # Tabela para produtos vendidos sem cadastro prévio
+    cursor.execute('''CREATE TABLE IF NOT EXISTS vendas_avulsas 
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, nome_informado TEXT, quantidade INTEGER, 
+        valor_pago REAL, data_venda TEXT, vendedor TEXT)''')
+
     cursor.execute("PRAGMA table_info(vendas)")
     if 'vendedor' not in [col[1] for col in cursor.fetchall()]:
         cursor.execute("ALTER TABLE vendas ADD COLUMN vendedor TEXT DEFAULT 'Sistema'")
@@ -156,23 +174,34 @@ def verificar_login(usuario, senha):
     res = cursor.fetchone(); conn.close()
     return {"nome": res[0], "nivel": res[1]} if res else None
 
-def registrar_venda(id_p, qtd, tipo, metodo, vendedor="Sistema"):
+def registrar_venda(id_p, qtd, tipo, metodo, vendedor="Sistema", nome_avulso=None, preco_avulso=None):
     conn = conectar(); cursor = conn.cursor()
-    cursor.execute("SELECT preco_custo, preco_venda, preco_fardo, unidades_por_fardo FROM produtos WHERE id = ?", (id_p,))
-    p = cursor.fetchone()
-    if not p: return
-    un = p[3] if p[3] else 1
-    if tipo in ['Fardo', 'Caixa', 'Pacote']:
-        val, q_est, c_tot = (p[2]*qtd), (qtd*un), ((p[0]*un)*qtd)
+    
+    # Se for um produto avulso (não cadastrado no estoque)
+    if id_p == 0 and nome_avulso:
+        val = preco_avulso * qtd
+        c_tot = 0.0 # Sem custo cadastrado
+        cursor.execute("INSERT INTO vendas (id_produto, quantidade_vendida, tipo_venda, metodo_pagamento, custo_na_venda, valor_pago, data_venda, vendedor) VALUES (?,?,?,?,?,?, datetime('now','localtime'), ?)",
+                       (0, qtd, tipo, metodo, c_tot, val, vendedor))
+        cursor.execute("INSERT INTO vendas_avulsas (nome_informado, quantidade, valor_pago, data_venda, vendedor) VALUES (?,?,?, datetime('now','localtime'), ?)",
+                       (nome_avulso, qtd, val, vendedor))
     else:
-        val, q_est, c_tot = (p[1]*qtd), qtd, (p[0]*qtd)
-    cursor.execute("INSERT INTO vendas (id_produto, quantidade_vendida, tipo_venda, metodo_pagamento, custo_na_venda, valor_pago, data_venda, vendedor) VALUES (?,?,?,?,?,?, datetime('now','localtime'), ?)",
-                   (id_p, qtd, tipo, metodo, c_tot, val, vendedor))
-    cursor.execute("UPDATE produtos SET quantidade = quantidade - ? WHERE id = ?", (q_est, id_p))
+        cursor.execute("SELECT preco_custo, preco_venda, preco_fardo, unidades_por_fardo FROM produtos WHERE id = ?", (id_p,))
+        p = cursor.fetchone()
+        if not p: return
+        un = p[3] if p[3] else 1
+        if tipo in ['Fardo', 'Caixa', 'Pacote']:
+            val, q_est, c_tot = (p[2]*qtd), (qtd*un), ((p[0]*un)*qtd)
+        else:
+            val, q_est, c_tot = (p[1]*qtd), qtd, (p[0]*qtd)
+        cursor.execute("INSERT INTO vendas (id_produto, quantidade_vendida, tipo_venda, metodo_pagamento, custo_na_venda, valor_pago, data_venda, vendedor) VALUES (?,?,?,?,?,?, datetime('now','localtime'), ?)",
+                       (id_p, qtd, tipo, metodo, c_tot, val, vendedor))
+        cursor.execute("UPDATE produtos SET quantidade = quantidade - ? WHERE id = ?", (q_est, id_p))
+        
     conn.commit(); conn.close()
 
     # Executa o backup automático para a nuvem a cada venda concluída
-    fazer_backup_terabox()
+    fazer_backup_nuvem()
 
 def registrar_pagamento_detalhado(forma, valor, usuario="Sistema"):
     conn = conectar(); cursor = conn.cursor()
@@ -188,7 +217,8 @@ def calcular_lucro_hoje(d1, d2):
 
 def resumo_vendas_por_metodo(met, d1, d2):
     conn = conectar(); cursor = conn.cursor()
-    cursor.execute("SELECT SUM(valor) FROM pagamentos_venda WHERE forma_pagamento = ? AND data_pagamento BETWEEN ? AND ?", (met, d1, d2))
+    # CORREÇÃO: Lê diretamente da tabela 'vendas' para bater 100% com o total por vendedor
+    cursor.execute("SELECT SUM(valor_pago) FROM vendas WHERE metodo_pagamento = ? AND data_venda BETWEEN ? AND ?", (met, d1, d2))
     res = cursor.fetchone()[0]; conn.close(); return res if res else 0.0
 
 def resumo_vendas_por_vendedor(d1, d2):
@@ -198,21 +228,40 @@ def resumo_vendas_por_vendedor(d1, d2):
 
 def produtos_mais_vendidos_hoje(d1, d2):
     conn = conectar(); cursor = conn.cursor()
-    cursor.execute('SELECT p.nome, SUM(v.quantidade_vendida), v.tipo_venda FROM vendas v JOIN produtos p ON v.id_produto = p.id WHERE v.data_venda BETWEEN ? AND ? GROUP BY p.nome, v.tipo_venda', (d1, d2))
+    # CORREÇÃO: Usa LEFT JOIN para não ignorar vendas de produtos avulsos (id_produto = 0)
+    cursor.execute('''
+        SELECT COALESCE(p.nome, '[AVULSO] Item Sem Cadastro'), SUM(v.quantidade_vendida), v.tipo_venda 
+        FROM vendas v 
+        LEFT JOIN produtos p ON v.id_produto = p.id 
+        WHERE v.data_venda BETWEEN ? AND ? 
+        GROUP BY COALESCE(p.nome, '[AVULSO] Item Sem Cadastro'), v.tipo_venda
+    ''', (d1, d2))
     res = cursor.fetchall(); conn.close(); return res
 
 def vendas_por_filtro_produto(nome_produto, d1, d2):
     conn = conectar(); cursor = conn.cursor()
     termo = f"%{nome_produto.strip().lower()}%"
     cursor.execute('''
-        SELECT p.nome, SUM(v.quantidade_vendida), v.tipo_venda, SUM(v.valor_pago)
+        SELECT COALESCE(p.nome, '[AVULSO] Item Sem Cadastro'), SUM(v.quantidade_vendida), v.tipo_venda, SUM(v.valor_pago)
         FROM vendas v 
-        JOIN produtos p ON v.id_produto = p.id 
-        WHERE LOWER(p.nome) LIKE ? AND v.data_venda BETWEEN ? AND ?
-        GROUP BY p.nome, v.tipo_venda
+        LEFT JOIN produtos p ON v.id_produto = p.id 
+        WHERE LOWER(COALESCE(p.nome, '[AVULSO] Item Sem Cadastro')) LIKE ? AND v.data_venda BETWEEN ? AND ?
+        GROUP BY COALESCE(p.nome, '[AVULSO] Item Sem Cadastro'), v.tipo_venda
     ''', (termo, d1, d2))
     res = cursor.fetchall(); conn.close()
     return res
+
+def listar_produtos_sem_cadastro(d1, d2):
+    """Retorna itens que foram vendidos como avulsos para o Admin cadastrar."""
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute('''
+        SELECT nome_informado, SUM(quantidade), SUM(valor_pago), vendedor
+        FROM vendas_avulsas
+        WHERE data_venda BETWEEN ? AND ?
+        GROUP BY nome_informado, vendedor
+        ORDER BY SUM(quantidade) DESC
+    ''', (d1, d2))
+    res = cursor.fetchall(); conn.close(); return res
 
 def listar_produtos_reposicao(limite=10):
     conn = conectar(); cursor = conn.cursor()
