@@ -11,6 +11,9 @@ import threading
 import struct
 import tempfile
 
+# CHAVE MESTRA DE EMERGÊNCIA (Defina uma chave segura para seu cliente)
+CHAVE_MESTRA_SISTEMA = "gone2026"
+
 # --- ROTINA DE IMPRESSÃO E EMISSÃO DE COMPROVANTES (ADEGA GONE DRACK) ---
 def imprimir_comprovante_venda(vendedor, carrinho, total, pago, troco, pagamentos):
     """Gera um arquivo de texto formatado como cupom não fiscal e envia para a impressora padrão."""
@@ -278,6 +281,44 @@ def verificar_login(usuario, senha):
     cursor.execute("SELECT nome, nivel FROM usuarios WHERE login = ? AND senha = ?", (usuario, senha))
     res = cursor.fetchone(); conn.close()
     return {"nome": res[0], "nivel": res[1]} if res else None
+
+# --- GERENCIAMENTO DE SENHAS E USUÁRIOS ---
+def recuperar_senha_login(login_usuario, chave_mestra, nova_senha):
+    """Redefine a senha na tela de login se a chave mestra de segurança for válida."""
+    if chave_mestra.strip() != CHAVE_MESTRA_SISTEMA:
+        return False, "Chave Mestra incorreta!"
+        
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute("SELECT id FROM usuarios WHERE login = ?", (login_usuario,))
+    u = cursor.fetchone()
+    
+    if u:
+        cursor.execute("UPDATE usuarios SET senha = ? WHERE id = ?", (nova_senha, u[0]))
+        conn.commit(); conn.close()
+        return True, f"Senha do usuário '{login_usuario}' redefinida com sucesso!"
+    
+    conn.close()
+    return False, f"Usuário '{login_usuario}' não encontrado!"
+
+def alterar_senha_usuario(nome_usuario, senha_atual, nova_senha):
+    """Altera a senha do usuário logado verificando a senha atual."""
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute("SELECT id FROM usuarios WHERE nome = ? AND senha = ?", (nome_usuario, senha_atual))
+    user = cursor.fetchone()
+    if user:
+        cursor.execute("UPDATE usuarios SET senha = ? WHERE id = ?", (nova_senha, user[0]))
+        conn.commit(); conn.close()
+        return True, "Senha alterada com sucesso!"
+    conn.close()
+    return False, "Senha atual incorreta!"
+
+def redefinir_senha_por_id(id_usuario, nova_senha):
+    """Redefine a senha de qualquer usuário pelo ID (função administrativa)."""
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET senha = ? WHERE id = ?", (nova_senha, id_usuario))
+    modificados = cursor.rowcount
+    conn.commit(); conn.close()
+    return modificados > 0
 
 def registrar_venda(id_p, qtd, tipo, metodo, vendedor="Sistema", nome_avulso=None, preco_avulso=None):
     conn = conectar(); cursor = conn.cursor()

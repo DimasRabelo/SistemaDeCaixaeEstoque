@@ -62,9 +62,9 @@ class Aplicativo(ctk.CTk):
             os.execl(sys.executable, sys.executable, *sys.argv)
 
     def abrir_login(self):
-        self.login_win = ctk.CTkToplevel(self); self.login_win.title("Acesso Dimtech - Gone Drack"); self.login_win.geometry("400x380")
+        self.login_win = ctk.CTkToplevel(self); self.login_win.title("Acesso Dimtech - Gone Drack"); self.login_win.geometry("400x420")
         self.login_win.attributes("-topmost", True); self.login_win.protocol("WM_DELETE_WINDOW", self.quit)
-        ctk.CTkLabel(self.login_win, text="ADEGA GONE DRACK", font=("Arial", 20, "bold")).pack(pady=20)
+        ctk.CTkLabel(self.login_win, text="ADEGA GONE DRACK", font=("Arial", 20, "bold")).pack(pady=15)
         ctk.CTkLabel(self.login_win, text="Por favor, identifique-se:").pack()
         
         users = [u[2] for u in listar_usuarios()]
@@ -74,9 +74,50 @@ class Aplicativo(ctk.CTk):
         
         self.en_pass = ctk.CTkEntry(self.login_win, placeholder_text="Senha", placeholder_text_color="#a9a9a9", show="*", width=250); self.en_pass.pack(pady=10)
         self.en_pass.bind("<Return>", lambda e: self.tentar_login())
-        self.lbl_erro = ctk.CTkLabel(self.login_win, text="", text_color="red"); self.lbl_erro.pack(pady=5)
-        ctk.CTkButton(self.login_win, text="ENTRAR", command=self.tentar_login, width=250, height=40).pack(pady=10)
+        self.lbl_erro = ctk.CTkLabel(self.login_win, text="", text_color="red"); self.lbl_erro.pack(pady=2)
+        
+        ctk.CTkButton(self.login_win, text="ENTRAR", command=self.tentar_login, width=250, height=40, fg_color="green").pack(pady=10)
+        ctk.CTkButton(self.login_win, text="Esqueci minha senha", command=self.abrir_recuperacao_senha, fg_color="transparent", text_color="#3B82F6", hover=False).pack(pady=2)
+        
         self.after(200, lambda: self.en_pass.focus_set())
+
+    def abrir_recuperacao_senha(self):
+        pop_rec = ctk.CTkToplevel(self.login_win)
+        pop_rec.title("Recuperar Senha")
+        pop_rec.geometry("380x350")
+        pop_rec.attributes("-topmost", True)
+        self.after(200, lambda: pop_rec.grab_set())
+        
+        ctk.CTkLabel(pop_rec, text="RECUPERAÇÃO DE ACESSO", font=("Arial", 16, "bold"), text_color="orange").pack(pady=15)
+        
+        user_sel = self.en_user.get()
+        en_usr_rec = ctk.CTkEntry(pop_rec, placeholder_text="Usuário (Login)", width=260)
+        en_usr_rec.insert(0, user_sel)
+        en_usr_rec.pack(pady=5)
+        
+        en_chave = ctk.CTkEntry(pop_rec, show="*", placeholder_text="Chave Mestra de Segurança", width=260)
+        en_chave.pack(pady=5)
+        
+        en_nova_s = ctk.CTkEntry(pop_rec, show="*", placeholder_text="Nova Senha", width=260)
+        en_nova_s.pack(pady=5)
+        
+        def executar_recuperacao():
+            usr = en_usr_rec.get().strip()
+            chv = en_chave.get().strip()
+            nv_s = en_nova_s.get().strip()
+            
+            if not usr or not chv or not nv_s:
+                messagebox.showwarning("Aviso", "Preencha todos os campos!", parent=pop_rec)
+                return
+                
+            ok, msg = recuperar_senha_login(usr, chv, nv_s)
+            if ok:
+                messagebox.showinfo("Sucesso", msg, parent=pop_rec)
+                pop_rec.destroy()
+            else:
+                messagebox.showerror("Erro", msg, parent=pop_rec)
+                
+        ctk.CTkButton(pop_rec, text="REDEFINIR SENHA", fg_color="blue", height=38, command=executar_recuperacao).pack(pady=20)
 
     def tentar_login(self):
         u, s = self.en_user.get(), self.en_pass.get(); d = verificar_login(u, s)
@@ -86,7 +127,13 @@ class Aplicativo(ctk.CTk):
     def montar_sistema(self):
         f = ctk.CTkFrame(self, fg_color="transparent"); f.pack(fill="x", padx=15, pady=(10, 0))
         ctk.CTkLabel(f, text=f"👤 Logado como: {self.usuario_atual}", font=("Arial", 14, "bold"), text_color="#32CD32").pack(side="left")
-        ctk.CTkButton(f, text="SAIR / TROCAR USUÁRIO", width=180, height=32, fg_color="#A52A2A", command=self.logout).pack(side="right")
+        
+        f_top_btns = ctk.CTkFrame(f, fg_color="transparent")
+        f_top_btns.pack(side="right")
+        
+        ctk.CTkButton(f_top_btns, text="🔑 ALTERAR MINHA SENHA", width=180, height=32, fg_color="#1f538d", command=self.abrir_janela_alterar_senha).pack(side="left", padx=5)
+        ctk.CTkButton(f_top_btns, text="SAIR / TROCAR USUÁRIO", width=180, height=32, fg_color="#A52A2A", command=self.logout).pack(side="left", padx=5)
+        
         self.tabview = ctk.CTkTabview(self, width=1150, height=820, command=self.ao_trocar_aba); self.tabview.pack(padx=10, pady=10, expand=True, fill="both")
         for aba in ["Vender", "Cadastrar", "Estoque", "Relatório", "Ajustes", "Usuários"]: self.tabview.add(aba)
         
@@ -94,6 +141,42 @@ class Aplicativo(ctk.CTk):
         
         self.configurar_aba_vender(); self.configurar_aba_cadastrar(); self.configurar_aba_estoque(); self.configurar_aba_relatorio(); self.configurar_aba_ajustes(); self.configurar_aba_usuarios() 
         self.carregar_dados(); self.deiconify() 
+
+    def abrir_janela_alterar_senha(self):
+        win_senha = ctk.CTkToplevel(self)
+        win_senha.title("Alterar Minha Senha")
+        win_senha.geometry("380x320")
+        win_senha.attributes("-topmost", True)
+        self.after(200, lambda: win_senha.grab_set())
+        
+        ctk.CTkLabel(win_senha, text="ALTERAÇÃO DE SENHA", font=("Arial", 16, "bold")).pack(pady=15)
+        
+        en_atual = ctk.CTkEntry(win_senha, show="*", placeholder_text="Senha Atual", width=260)
+        en_atual.pack(pady=5)
+        
+        en_nova = ctk.CTkEntry(win_senha, show="*", placeholder_text="Nova Senha", width=260)
+        en_nova.pack(pady=5)
+        
+        en_conf = ctk.CTkEntry(win_senha, show="*", placeholder_text="Confirmar Nova Senha", width=260)
+        en_conf.pack(pady=5)
+        
+        def salvar_nova_senha():
+            s_at, s_nv, s_cf = en_atual.get(), en_nova.get(), en_conf.get()
+            if not s_at or not s_nv or not s_cf:
+                messagebox.showwarning("Aviso", "Preencha todos os campos!", parent=win_senha)
+                return
+            if s_nv != s_cf:
+                messagebox.showerror("Erro", "A nova senha e a confirmação não conferem!", parent=win_senha)
+                return
+                
+            ok, msg = alterar_senha_usuario(self.usuario_atual, s_at, s_nv)
+            if ok:
+                messagebox.showinfo("Sucesso", msg, parent=win_senha)
+                win_senha.destroy()
+            else:
+                messagebox.showerror("Erro", msg, parent=win_senha)
+                
+        ctk.CTkButton(win_senha, text="ATUALIZAR SENHA", fg_color="green", height=38, command=salvar_nova_senha).pack(pady=20)
 
     def carregar_dados(self):
         try: 
@@ -765,18 +848,48 @@ class Aplicativo(ctk.CTk):
     def configurar_aba_usuarios(self):
         tab = self.tabview.tab("Usuários"); f_main = ctk.CTkFrame(tab, fg_color="transparent"); f_main.pack(expand=True, fill="both", padx=20, pady=10)
         f_esq = ctk.CTkFrame(f_main, fg_color="transparent"); f_esq.pack(side="left", fill="both", expand=True)
-        ctk.CTkLabel(f_esq, text="CADASTRAR NOVO FUNCIONÁRIO", font=("Arial", 18, "bold")).pack(pady=(10, 20))
-        ctk.CTkLabel(f_esq, text="Nome Completo:").pack(); self.en_nome_user = ctk.CTkEntry(f_esq, width=300, placeholder_text="Nome...", placeholder_text_color="#a9a9a9"); self.en_nome_user.pack(pady=5)
-        ctk.CTkLabel(f_esq, text="Usuário de Login:").pack(); self.en_login_user = ctk.CTkEntry(f_esq, width=300, placeholder_text="Login...", placeholder_text_color="#a9a9a9"); self.en_login_user.pack(pady=5)
-        ctk.CTkLabel(f_esq, text="Senha de Acesso:").pack(); self.en_senha_user = ctk.CTkEntry(f_esq, show="*", width=300, placeholder_text="Senha...", placeholder_text_color="#a9a9a9"); self.en_senha_user.pack(pady=5)
-        ctk.CTkLabel(f_esq, text="Nível de Permissão:").pack(); self.cb_nivel = ctk.CTkComboBox(f_esq, values=["Operador", "Admin"], width=300); self.cb_nivel.set("Operador"); self.cb_nivel.pack(pady=10)
-        ctk.CTkButton(f_esq, text="SALVAR FUNCIONÁRIO", fg_color="green", height=40, command=self.acao_salvar_usuario).pack(pady=10)
+        ctk.CTkLabel(f_esq, text="CADASTRAR NOVO FUNCIONÁRIO", font=("Arial", 18, "bold")).pack(pady=(10, 15))
+        ctk.CTkLabel(f_esq, text="Nome Completo:").pack(); self.en_nome_user = ctk.CTkEntry(f_esq, width=300, placeholder_text="Nome...", placeholder_text_color="#a9a9a9"); self.en_nome_user.pack(pady=4)
+        ctk.CTkLabel(f_esq, text="Usuário de Login:").pack(); self.en_login_user = ctk.CTkEntry(f_esq, width=300, placeholder_text="Login...", placeholder_text_color="#a9a9a9"); self.en_login_user.pack(pady=4)
+        ctk.CTkLabel(f_esq, text="Senha de Acesso:").pack(); self.en_senha_user = ctk.CTkEntry(f_esq, show="*", width=300, placeholder_text="Senha...", placeholder_text_color="#a9a9a9"); self.en_senha_user.pack(pady=4)
+        ctk.CTkLabel(f_esq, text="Nível de Permissão:").pack(); self.cb_nivel = ctk.CTkComboBox(f_esq, values=["Operador", "Admin"], width=300); self.cb_nivel.set("Operador"); self.cb_nivel.pack(pady=8)
+        ctk.CTkButton(f_esq, text="SALVAR FUNCIONÁRIO", fg_color="green", height=35, command=self.acao_salvar_usuario).pack(pady=8)
+        
         f_dir = ctk.CTkFrame(f_main, fg_color="#2b2b2b", corner_radius=10); f_dir.pack(side="right", fill="both", expand=True, padx=10)
         ctk.CTkLabel(f_dir, text="FUNCIONÁRIOS ATIVOS", font=("Arial", 14, "bold")).pack(pady=10)
-        self.txt_lista_users = ctk.CTkTextbox(f_dir, width=400, height=300); self.txt_lista_users.pack(pady=10, padx=10)
-        ctk.CTkLabel(f_dir, text="Digite o ID para remover:").pack()
-        self.en_id_user_del = ctk.CTkEntry(f_dir, placeholder_text="ID", placeholder_text_color="#a9a9a9", width=120, justify="center"); self.en_id_user_del.pack(pady=5)
-        ctk.CTkButton(f_dir, text="EXCLUIR USUÁRIO", fg_color="red", command=self.acao_excluir_usuario).pack(pady=(5, 15))
+        self.txt_lista_users = ctk.CTkTextbox(f_dir, width=400, height=220); self.txt_lista_users.pack(pady=5, padx=10)
+        
+        f_acoes_usr = ctk.CTkFrame(f_dir, fg_color="transparent")
+        f_acoes_usr.pack(pady=5, fill="x", padx=10)
+        
+        ctk.CTkLabel(f_acoes_usr, text="ID Usuário:").pack()
+        self.en_id_user_del = ctk.CTkEntry(f_acoes_usr, placeholder_text="ID", placeholder_text_color="#a9a9a9", width=120, justify="center")
+        self.en_id_user_del.pack(pady=2)
+        
+        self.en_nova_senha_admin = ctk.CTkEntry(f_acoes_usr, placeholder_text="Nova Senha (para Redefinir)", show="*", width=220)
+        self.en_nova_senha_admin.pack(pady=4)
+        
+        f_btns_usr = ctk.CTkFrame(f_acoes_usr, fg_color="transparent")
+        f_btns_usr.pack(pady=5)
+        
+        ctk.CTkButton(f_btns_usr, text="REDEFINIR SENHA", fg_color="#D97706", width=140, command=self.acao_redefinir_senha_admin).pack(side="left", padx=5)
+        ctk.CTkButton(f_btns_usr, text="EXCLUIR USUÁRIO", fg_color="red", width=140, command=self.acao_excluir_usuario).pack(side="left", padx=5)
+
+    def acao_redefinir_senha_admin(self):
+        id_u = self.en_id_user_del.get().strip()
+        nova_s = self.en_nova_senha_admin.get().strip()
+        
+        if not id_u or not nova_s:
+            messagebox.showwarning("Aviso", "Informe o ID do usuário e a Nova Senha para redefinir!")
+            return
+            
+        if messagebox.askyesno("Confirmar Redefinição", f"Deseja redefinir a senha do usuário ID {id_u}?"):
+            if redefinir_senha_por_id(id_u, nova_s):
+                messagebox.showinfo("Sucesso", f"Senha do usuário ID {id_u} redefinida com sucesso!")
+                self.en_id_user_del.delete(0, 'end')
+                self.en_nova_senha_admin.delete(0, 'end')
+            else:
+                messagebox.showerror("Erro", "Usuário não encontrado no sistema!")
 
     def acao_excluir_usuario(self):
         id_u = self.en_id_user_del.get()
