@@ -26,7 +26,7 @@ def safe_float(valor, padrao=0.0):
 class Aplicativo(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Adega do Dimas - Gestão Completa")
+        self.title("Adega Gone Drack - Gestão Completa")
         self.geometry("1200x900")
         self.after(10, self.withdraw)
         self.usuario_atual, self.nivel_acesso = None, None
@@ -62,9 +62,9 @@ class Aplicativo(ctk.CTk):
             os.execl(sys.executable, sys.executable, *sys.argv)
 
     def abrir_login(self):
-        self.login_win = ctk.CTkToplevel(self); self.login_win.title("Acesso Dimtech"); self.login_win.geometry("400x380")
+        self.login_win = ctk.CTkToplevel(self); self.login_win.title("Acesso Dimtech - Gone Drack"); self.login_win.geometry("400x380")
         self.login_win.attributes("-topmost", True); self.login_win.protocol("WM_DELETE_WINDOW", self.quit)
-        ctk.CTkLabel(self.login_win, text="SISTEMA DE CAIXA", font=("Arial", 20, "bold")).pack(pady=20)
+        ctk.CTkLabel(self.login_win, text="ADEGA GONE DRACK", font=("Arial", 20, "bold")).pack(pady=20)
         ctk.CTkLabel(self.login_win, text="Por favor, identifique-se:").pack()
         
         users = [u[2] for u in listar_usuarios()]
@@ -90,7 +90,6 @@ class Aplicativo(ctk.CTk):
         self.tabview = ctk.CTkTabview(self, width=1150, height=820, command=self.ao_trocar_aba); self.tabview.pack(padx=10, pady=10, expand=True, fill="both")
         for aba in ["Vender", "Cadastrar", "Estoque", "Relatório", "Ajustes", "Usuários"]: self.tabview.add(aba)
         
-        # Ajuste do tamanho da fonte dos botões superiores das abas
         self.tabview._segmented_button.configure(font=("Arial", 18, "bold"))
         
         self.configurar_aba_vender(); self.configurar_aba_cadastrar(); self.configurar_aba_estoque(); self.configurar_aba_relatorio(); self.configurar_aba_ajustes(); self.configurar_aba_usuarios() 
@@ -130,7 +129,6 @@ class Aplicativo(ctk.CTk):
         
         ctk.CTkLabel(f_esq, text="ADICIONAR PRODUTO", font=("Arial", 16, "bold")).pack(pady=(10, 2))
         
-        # Quadro unificado: Quantidade + Busca + Botão Adicionar
         f_busca_qtd = ctk.CTkFrame(f_esq, fg_color="transparent")
         f_busca_qtd.pack(pady=5)
         
@@ -138,7 +136,6 @@ class Aplicativo(ctk.CTk):
         self.en_qtd = ctk.CTkEntry(f_busca_qtd, width=50, justify="center")
         self.en_qtd.insert(0, "1")
         self.en_qtd.pack(side="left", padx=(0, 5))
-        # Permite dar Enter dentro do campo de quantidade
         self.en_qtd.bind("<Return>", self.ao_pressionar_enter_venda)
         
         self.en_busca = ctk.CTkEntry(f_busca_qtd, placeholder_text="Nome ou Bipar Código...", width=240)
@@ -146,7 +143,6 @@ class Aplicativo(ctk.CTk):
         self.en_busca.bind("<KeyRelease>", self.filtrar_venda)
         self.en_busca.bind("<Return>", self.ao_pressionar_enter_venda)
         
-        # Botão explicito para adicionar ao lado direito
         btn_add = ctk.CTkButton(
             f_busca_qtd, 
             text="+ ADD", 
@@ -339,6 +335,39 @@ class Aplicativo(ctk.CTk):
                 msg += f"\n\nTroco a devolver: R$ {troco:.2f}"
                 
             messagebox.showinfo("Venda OK", msg)
+
+            # Opção de Impressão na Impressora Térmica
+            if messagebox.askyesno("Imprimir Cupom", "Deseja imprimir o comprovante na impressora?"):
+                imprimir_comprovante_venda(
+                    vendedor=self.usuario_atual,
+                    carrinho=self.carrinho,
+                    total=total_venda,
+                    pago=total_pago,
+                    troco=troco,
+                    pagamentos=self.pagamentos_venda
+                )
+
+            # Opção de Salvar Comprovante em PDF
+            if messagebox.askyesno("Salvar PDF", "Deseja salvar o comprovante em PDF no computador?"):
+                data_nome = datetime.now().strftime("%Y%m%d_%H%M%S")
+                caminho = filedialog.asksaveasfilename(
+                    initialfile=f"Comprovante_GoneDrack_{data_nome}.pdf",
+                    defaultextension=".pdf", 
+                    filetypes=[("Arquivo PDF", "*.pdf")]
+                )
+                if caminho:
+                    gerar_pdf_comprovante_venda(
+                        caminho_pdf=caminho,
+                        vendedor=self.usuario_atual,
+                        carrinho=self.carrinho,
+                        total=total_venda,
+                        pago=total_pago,
+                        troco=troco,
+                        pagamentos=self.pagamentos_venda
+                    )
+                    if messagebox.askyesno("Sucesso", "PDF do comprovante salvo com sucesso!\n\nDeseja abrir o arquivo agora?"):
+                        abrir_arquivo_gerado(caminho)
+
             self.limpar()
             self.carregar_dados() 
         except Exception as e: 

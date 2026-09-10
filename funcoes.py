@@ -9,6 +9,109 @@ import sys
 import shutil
 import threading
 import struct
+import tempfile
+
+# --- ROTINA DE IMPRESSÃO E EMISSÃO DE COMPROVANTES (ADEGA GONE DRACK) ---
+def imprimir_comprovante_venda(vendedor, carrinho, total, pago, troco, pagamentos):
+    """Gera um arquivo de texto formatado como cupom não fiscal e envia para a impressora padrão."""
+    data_hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    
+    cupom = []
+    cupom.append("=" * 33)
+    cupom.append("       ADEGA GONE DRACK       ")
+    cupom.append("   Comprovante de Venda (PDV)  ")
+    cupom.append("=" * 33)
+    cupom.append(f"Data/Hora: {data_hora}")
+    cupom.append(f"Atendente: {vendedor}")
+    cupom.append("-" * 33)
+    cupom.append(f"{'ITEM':<18} {'QTD':>4} {'TOTAL':>9}")
+    cupom.append("-" * 33)
+
+    for item in carrinho:
+        nome_prod = item['nome'][:18]
+        qtd = f"{item['qtd']}x"
+        subtotal = f"R${item['sub']:.2f}"
+        cupom.append(f"{nome_prod:<18} {qtd:>4} {subtotal:>9}")
+
+    cupom.append("-" * 33)
+    cupom.append(f"TOTAL:             R$ {total:>8.2f}")
+    
+    for p in pagamentos:
+        forma = p['forma'].upper()
+        val = p['valor']
+        cupom.append(f"PAGO ({forma}):    R$ {val:>8.2f}")
+        
+    if troco > 0:
+        cupom.append(f"TROCO:             R$ {troco:>8.2f}")
+        
+    cupom.append("=" * 33)
+    cupom.append("    Obrigado pela preferencia!   ")
+    cupom.append("=" * 33)
+    cupom.append("\n\n")
+
+    texto_cupom = "\n".join(cupom)
+
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as temp_file:
+            temp_file.write(texto_cupom)
+            caminho_temp = temp_file.name
+
+        if sys.platform.startswith('linux'):
+            subprocess.run(['lpr', caminho_temp])
+        elif sys.platform.startswith('win'):
+            os.startfile(caminho_temp, "print")
+    except Exception as e:
+        print(f"[ERRO IMPRESSAO] Nao foi possivel imprimir: {e}")
+
+def gerar_pdf_comprovante_venda(caminho_pdf, vendedor, carrinho, total, pago, troco, pagamentos):
+    """Gera um arquivo PDF com o comprovante de venda."""
+    data_hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    c = canvas.Canvas(caminho_pdf, pagesize=letter)
+    y = 750
+    
+    c.setFont("Courier-Bold", 12)
+    c.drawString(50, y, "=================================") ; y -= 15
+    c.drawString(50, y, "       ADEGA GONE DRACK          ") ; y -= 15
+    c.drawString(50, y, "   Comprovante de Venda (PDV)    ") ; y -= 15
+    c.drawString(50, y, "=================================") ; y -= 20
+    
+    c.setFont("Courier", 10)
+    c.drawString(50, y, f"Data/Hora: {data_hora}") ; y -= 15
+    c.drawString(50, y, f"Atendente: {vendedor}") ; y -= 15
+    c.drawString(50, y, "---------------------------------") ; y -= 15
+    c.drawString(50, y, f"{'ITEM':<18} {'QTD':>4} {'TOTAL':>9}") ; y -= 15
+    c.drawString(50, y, "---------------------------------") ; y -= 15
+
+    for item in carrinho:
+        if y < 50:
+            c.showPage()
+            y = 750
+            c.setFont("Courier", 10)
+        nome_prod = item['nome'][:18]
+        qtd = f"{item['qtd']}x"
+        subtotal = f"R${item['sub']:.2f}"
+        c.drawString(50, y, f"{nome_prod:<18} {qtd:>4} {subtotal:>9}")
+        y -= 15
+
+    c.drawString(50, y, "---------------------------------") ; y -= 15
+    c.setFont("Courier-Bold", 10)
+    c.drawString(50, y, f"TOTAL:             R$ {total:>8.2f}") ; y -= 15
+    
+    c.setFont("Courier", 10)
+    for p in pagamentos:
+        forma = p['forma'].upper()
+        val = p['valor']
+        c.drawString(50, y, f"PAGO ({forma}):    R$ {val:>8.2f}")
+        y -= 15
+        
+    if troco > 0:
+        c.drawString(50, y, f"TROCO:             R$ {troco:>8.2f}") ; y -= 15
+        
+    c.drawString(50, y, "=================================") ; y -= 15
+    c.drawString(50, y, "    Obrigado pela preferencia!   ") ; y -= 15
+    c.drawString(50, y, "=================================")
+    
+    c.save()
 
 # --- ROTINA DE BACKUP AUTOMÁTICO (GOOGLE DRIVE / RCLONE) ---
 def fazer_backup_nuvem():
@@ -17,17 +120,13 @@ def fazer_backup_nuvem():
         try:
             home_dir = os.path.expanduser("~")
 
-            # Define o caminho de destino e escolhe o executável correto
             if sys.platform.startswith('linux'):
                 pasta_destino = os.path.join(home_dir, "GoogleDrive", "AdegaBackup")
                 executavel_rclone = "rclone"
             elif sys.platform.startswith('win'):
                 pasta_destino = os.path.join(home_dir, "Documents", "AdegaBackup")
-                
-                # Detecta se o Python/Windows é 32-bit ou 64-bit
                 is_64bit = struct.calcsize("P") * 8 == 64
                 nome_exe = "rclone64.exe" if is_64bit else "rclone32.exe"
-                
                 caminho_local_rclone = os.path.join(os.getcwd(), nome_exe)
                 if os.path.exists(caminho_local_rclone):
                     executavel_rclone = caminho_local_rclone
@@ -40,12 +139,10 @@ def fazer_backup_nuvem():
             if not os.path.exists(pasta_destino):
                 os.makedirs(pasta_destino)
 
-            # Copias locais
             shutil.copy2("adega.db", os.path.join(pasta_destino, "adega_backup.db"))
             data_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             shutil.copy2("adega.db", os.path.join(pasta_destino, f"adega_{data_str}.db"))
 
-            # Executa o Rclone detectado
             comando_rclone = [
                 executavel_rclone, "sync", pasta_destino, "gdrive:AdegaBackup",
                 "--tpslimit", "5",
@@ -67,7 +164,7 @@ def fazer_backup_nuvem():
 # --- FUNÇÕES DE EXPORTAÇÃO DE RELATÓRIO ---
 def exportar_relatorio_docx(caminho_arquivo, titulo, periodo, faturamento, lucro, metodos, texto_detalhes):
     doc = Document()
-    doc.add_heading(f'Adega do Dimas - {titulo}', level=1)
+    doc.add_heading(f'Adega Gone Drack - {titulo}', level=1)
     if periodo:
         doc.add_paragraph(f"Período: {periodo}")
     if faturamento is not None:
@@ -90,7 +187,7 @@ def exportar_relatorio_pdf(caminho_arquivo, titulo, periodo, faturamento, lucro,
     y = 750
     
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, y, f"Adega do Dimas - {titulo}")
+    c.drawString(50, y, f"Adega Gone Drack - {titulo}")
     y -= 25
     
     c.setFont("Helvetica", 12)
@@ -160,7 +257,6 @@ def conectar():
     cursor.execute('''CREATE TABLE IF NOT EXISTS logs 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_nome TEXT, acao TEXT, data_hora TEXT)''')
 
-    # Tabela para produtos vendidos sem cadastro prévio
     cursor.execute('''CREATE TABLE IF NOT EXISTS vendas_avulsas 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, nome_informado TEXT, quantidade INTEGER, 
         valor_pago REAL, data_venda TEXT, vendedor TEXT)''')
@@ -186,10 +282,9 @@ def verificar_login(usuario, senha):
 def registrar_venda(id_p, qtd, tipo, metodo, vendedor="Sistema", nome_avulso=None, preco_avulso=None):
     conn = conectar(); cursor = conn.cursor()
     
-    # Se for um produto avulso (não cadastrado no estoque)
     if id_p == 0 and nome_avulso:
         val = preco_avulso * qtd
-        c_tot = 0.0 # Sem custo cadastrado
+        c_tot = 0.0
         cursor.execute("INSERT INTO vendas (id_produto, quantidade_vendida, tipo_venda, metodo_pagamento, custo_na_venda, valor_pago, data_venda, vendedor) VALUES (?,?,?,?,?,?, datetime('now','localtime'), ?)",
                        (0, qtd, tipo, metodo, c_tot, val, vendedor))
         cursor.execute("INSERT INTO vendas_avulsas (nome_informado, quantidade, valor_pago, data_venda, vendedor) VALUES (?,?,?, datetime('now','localtime'), ?)",
@@ -208,8 +303,6 @@ def registrar_venda(id_p, qtd, tipo, metodo, vendedor="Sistema", nome_avulso=Non
         cursor.execute("UPDATE produtos SET quantidade = quantidade - ? WHERE id = ?", (q_est, id_p))
         
     conn.commit(); conn.close()
-
-    # Executa o backup automático para a nuvem a cada venda concluída
     fazer_backup_nuvem()
 
 def registrar_pagamento_detalhado(forma, valor, usuario="Sistema"):
@@ -218,7 +311,6 @@ def registrar_pagamento_detalhado(forma, valor, usuario="Sistema"):
                    (forma, valor, usuario))
     conn.commit(); conn.close()
 
-# --- RELATÓRIOS COM FILTRO DE PERÍODO ---
 def calcular_lucro_hoje(d1, d2):
     conn = conectar(); cursor = conn.cursor()
     cursor.execute('SELECT SUM(valor_pago - custo_na_venda) FROM vendas WHERE data_venda BETWEEN ? AND ?', (d1, d2))
@@ -226,7 +318,6 @@ def calcular_lucro_hoje(d1, d2):
 
 def resumo_vendas_por_metodo(met, d1, d2):
     conn = conectar(); cursor = conn.cursor()
-    # CORREÇÃO: Lê diretamente da tabela 'vendas' para bater 100% com o total por vendedor
     cursor.execute("SELECT SUM(valor_pago) FROM vendas WHERE metodo_pagamento = ? AND data_venda BETWEEN ? AND ?", (met, d1, d2))
     res = cursor.fetchone()[0]; conn.close(); return res if res else 0.0
 
@@ -237,7 +328,6 @@ def resumo_vendas_por_vendedor(d1, d2):
 
 def produtos_mais_vendidos_hoje(d1, d2):
     conn = conectar(); cursor = conn.cursor()
-    # CORREÇÃO: Usa LEFT JOIN para não ignorar vendas de produtos avulsos (id_produto = 0)
     cursor.execute('''
         SELECT COALESCE(p.nome, '[AVULSO] Item Sem Cadastro'), SUM(v.quantidade_vendida), v.tipo_venda 
         FROM vendas v 
@@ -261,7 +351,6 @@ def vendas_por_filtro_produto(nome_produto, d1, d2):
     return res
 
 def listar_produtos_sem_cadastro(d1, d2):
-    """Retorna itens que foram vendidos como avulsos para o Admin cadastrar."""
     conn = conectar(); cursor = conn.cursor()
     cursor.execute('''
         SELECT nome_informado, SUM(quantidade), SUM(valor_pago), vendedor
