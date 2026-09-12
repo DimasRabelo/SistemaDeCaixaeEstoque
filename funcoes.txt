@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from docx import Document
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -12,96 +12,19 @@ import struct
 import tempfile
 import urllib.parse
 import urllib.request
-import json
-import hashlib
 
 # CHAVE MESTRA DE EMERGÊNCIA
 CHAVE_MESTRA_SISTEMA = "gone2026"
-SECRET_SALT = "DimTech_Adega_Key_2026_Secure"
 
-# CONFIGURAÇÃO TELEGRAM (Opcional)
+# CONFIGURAÇÃO TELEGRAM (Opcional - preencha se desejar receber avisos no celular)
 TELEGRAM_BOT_TOKEN = ""  # Ex: "123456789:ABCdefGHIjklMNOpqrsTUVwxyZ"
 TELEGRAM_CHAT_ID = ""    # Ex: "987654321"
 
-# --- GERENCIAMENTO DE DADOS FIXOS DA EMPRESA (CNPJ / CABEÇALHO) ---
-def carregar_dados_empresa():
-    caminho_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-    if os.path.exists(caminho_config):
-        try:
-            with open(caminho_config, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    
-    dados_padrao = {
-        "nome_adega": "ADEGA GONE DRACK",
-        "cnpj": "00.000.000/0001-00",
-        "endereco": "Rua Principal, 100 - Centro",
-        "telefone": "(11) 99999-9999"
-    }
-    try:
-        with open(caminho_config, "w", encoding="utf-8") as f:
-            json.dump(dados_padrao, f, indent=4, ensure_ascii=False)
-    except Exception:
-        pass
-    return dados_padrao
-
-# --- SISTEMA DE CONTROLE DE LICENÇA (30 DIAS LOCAL) ---
-def obter_caminho_licenca():
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "license.key")
-
-def validar_chave_master(chave_digitada):
-    chave_esperada = hashlib.sha256(f"DIMTECH-PRO-2026_{SECRET_SALT}".encode()).hexdigest()
-    return hashlib.sha256(f"{chave_digitada.strip()}_{SECRET_SALT}".encode()).hexdigest() == chave_esperada
-
-def verificar_status_licenca():
-    caminho = obter_caminho_licenca()
-    hoje = date.today()
-
-    if not os.path.exists(caminho):
-        dados = {
-            "data_inicio": hoje.strftime("%Y-%m-%d"),
-            "licenciado": False,
-            "chave": ""
-        }
-        with open(caminho, "w") as f:
-            json.dump(dados, f)
-        return True, 30, "Modo de Teste Gratuito (30 Dias)"
-
-    try:
-        with open(caminho, "r") as f:
-            dados = json.load(f)
-
-        if dados.get("licenciado", False):
-            return True, 999, "Licença Definitiva Ativa"
-
-        dt_inicio = datetime.strptime(dados["data_inicio"], "%Y-%m-%d").date()
-        dias_passados = (hoje - dt_inicio).days
-        dias_restantes = 30 - dias_passados
-
-        if dias_passados < 0 or dias_restantes <= 0:
-            return False, 0, "Período de teste de 30 dias expirado!"
-
-        return True, dias_restantes, f"Modo de Teste ({dias_restantes} dias restantes)"
-    except Exception:
-        return False, 0, "Erro de verificação de licença."
-
-def ativar_licenca_definitiva(chave_digitada):
-    if validar_chave_master(chave_digitada):
-        caminho = obter_caminho_licenca()
-        dados = {
-            "data_inicio": date.today().strftime("%Y-%m-%d"),
-            "licenciado": True,
-            "chave": hashlib.sha256(f"{chave_digitada}_{SECRET_SALT}".encode()).hexdigest()
-        }
-        with open(caminho, "w") as f:
-            json.dump(dados, f)
-        return True, "Licença ativada com sucesso!"
-    return False, "Chave de ativação inválida!"
-
 def enviar_notificacao_telegram(mensagem):
+    """Envia uma mensagem de notificação via Telegram de forma assíncrona."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
+        
     def disparar():
         try:
             texto = urllib.parse.quote(mensagem)
@@ -109,23 +32,20 @@ def enviar_notificacao_telegram(mensagem):
             urllib.request.urlopen(url, timeout=5)
         except Exception as e:
             print(f"[ERRO TELEGRAM] Não foi possível enviar notificação: {e}")
+            
     threading.Thread(target=disparar, daemon=True).start()
 
 # --- ROTINA DE IMPRESSÃO E EMISSÃO DE COMPROVANTES ---
-def imprimir_comprovante_venda(vendedor, carrinho, total, pago, troco, pagamentos, cliente_fiado=None, documento_cliente=None):
+def imprimir_comprovante_venda(vendedor, carrinho, total, pago, troco, pagamentos, cliente_fiado=None):
     data_hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    empresa = carregar_dados_empresa()
     
     cupom = []
     cupom.append("=" * 33)
-    cupom.append(f"{empresa['nome_adega'].center(33)}")
-    cupom.append(f"CNPJ: {empresa['cnpj']}".center(33))
-    cupom.append("Comprovante de Venda (PDV)".center(33))
+    cupom.append("       ADEGA GONE DRACK       ")
+    cupom.append("   Comprovante de Venda (PDV)  ")
     cupom.append("=" * 33)
     cupom.append(f"Data/Hora: {data_hora}")
     cupom.append(f"Atendente: {vendedor}")
-    if documento_cliente:
-        cupom.append(f"CPF/CNPJ Consumidor: {documento_cliente}")
     if cliente_fiado:
         cupom.append(f"Cliente Fiado: {cliente_fiado}")
     cupom.append("-" * 33)
@@ -150,7 +70,7 @@ def imprimir_comprovante_venda(vendedor, carrinho, total, pago, troco, pagamento
         cupom.append(f"TROCO:             R$ {troco:>8.2f}")
         
     cupom.append("=" * 33)
-    cupom.append("   Obrigado pela preferencia!   ")
+    cupom.append("    Obrigado pela preferencia!   ")
     cupom.append("=" * 33)
     cupom.append("\n\n")
 
@@ -168,24 +88,20 @@ def imprimir_comprovante_venda(vendedor, carrinho, total, pago, troco, pagamento
     except Exception as e:
         print(f"[ERRO IMPRESSAO] Nao foi possivel imprimir: {e}")
 
-def gerar_pdf_comprovante_venda(caminho_pdf, vendedor, carrinho, total, pago, troco, pagamentos, cliente_fiado=None, documento_cliente=None):
+def gerar_pdf_comprovante_venda(caminho_pdf, vendedor, carrinho, total, pago, troco, pagamentos, cliente_fiado=None):
     data_hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    empresa = carregar_dados_empresa()
     c = canvas.Canvas(caminho_pdf, pagesize=letter)
     y = 750
     
     c.setFont("Courier-Bold", 12)
     c.drawString(50, y, "=================================") ; y -= 15
-    c.drawString(50, y, f"{empresa['nome_adega'].center(33)}") ; y -= 15
-    c.drawString(50, y, f"CNPJ: {empresa['cnpj']}".center(33)) ; y -= 15
+    c.drawString(50, y, "       ADEGA GONE DRACK          ") ; y -= 15
     c.drawString(50, y, "   Comprovante de Venda (PDV)    ") ; y -= 15
     c.drawString(50, y, "=================================") ; y -= 20
     
     c.setFont("Courier", 10)
     c.drawString(50, y, f"Data/Hora: {data_hora}") ; y -= 15
     c.drawString(50, y, f"Atendente: {vendedor}") ; y -= 15
-    if documento_cliente:
-        c.drawString(50, y, f"CPF/CNPJ Consumidor: {documento_cliente}") ; y -= 15
     if cliente_fiado:
         c.drawString(50, y, f"Cliente Fiado: {cliente_fiado}") ; y -= 15
     c.drawString(50, y, "---------------------------------") ; y -= 15
@@ -218,83 +134,76 @@ def gerar_pdf_comprovante_venda(caminho_pdf, vendedor, carrinho, total, pago, tr
         c.drawString(50, y, f"TROCO:             R$ {troco:>8.2f}") ; y -= 15
         
     c.drawString(50, y, "=================================") ; y -= 15
-    c.drawString(50, y, "   Obrigado pela preferencia!   ") ; y -= 15
+    c.drawString(50, y, "    Obrigado pela preferencia!   ") ; y -= 15
     c.drawString(50, y, "=================================")
     
     c.save()
 
-# --- ROTINA DE BACKUP AUTOMÁTICO E MANUAL ---
-def executar_rotina_backup(callback_status=None):
-    try:
-        if callback_status:
-            callback_status("☁️ Sincronizando backup...")
+# --- ROTINA DE BACKUP AUTOMÁTICO COM NOTIFICAÇÃO ---
+def fazer_backup_nuvem(callback_status=None):
+    """Realiza a cópia do banco de dados e sincroniza com o Google Drive."""
+    def copiar():
+        try:
+            if callback_status:
+                callback_status("☁️ Sincronizando backup...")
 
-        home_dir = os.path.expanduser("~")
+            home_dir = os.path.expanduser("~")
 
-        if sys.platform.startswith('linux'):
-            pasta_destino = os.path.join(home_dir, "GoogleDrive", "AdegaBackup")
-            executavel_rclone = "rclone"
-        elif sys.platform.startswith('win'):
-            pasta_destino = os.path.join(home_dir, "Documents", "AdegaBackup")
-            c_rclone = os.path.join(os.getcwd(), "rclone.exe")
-            c_rclone64 = os.path.join(os.getcwd(), "rclone64.exe")
-            
-            if os.path.exists(c_rclone):
-                executavel_rclone = c_rclone
-            elif os.path.exists(c_rclone64):
-                executavel_rclone = c_rclone64
-            else:
+            if sys.platform.startswith('linux'):
+                pasta_destino = os.path.join(home_dir, "GoogleDrive", "AdegaBackup")
                 executavel_rclone = "rclone"
-        else:
-            pasta_destino = os.path.join(home_dir, "AdegaBackup")
-            executavel_rclone = "rclone"
+            elif sys.platform.startswith('win'):
+                pasta_destino = os.path.join(home_dir, "Documents", "AdegaBackup")
+                c_rclone = os.path.join(os.getcwd(), "rclone.exe")
+                c_rclone64 = os.path.join(os.getcwd(), "rclone64.exe")
+                
+                if os.path.exists(c_rclone):
+                    executavel_rclone = c_rclone
+                elif os.path.exists(c_rclone64):
+                    executavel_rclone = c_rclone64
+                else:
+                    executavel_rclone = "rclone"
+            else:
+                pasta_destino = os.path.join(home_dir, "AdegaBackup")
+                executavel_rclone = "rclone"
 
-        if not os.path.exists(pasta_destino):
-            os.makedirs(pasta_destino)
+            if not os.path.exists(pasta_destino):
+                os.makedirs(pasta_destino)
 
-        shutil.copy2("adega.db", os.path.join(pasta_destino, "adega_backup.db"))
-        data_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        shutil.copy2("adega.db", os.path.join(pasta_destino, f"adega_{data_str}.db"))
+            shutil.copy2("adega.db", os.path.join(pasta_destino, "adega_backup.db"))
+            data_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            shutil.copy2("adega.db", os.path.join(pasta_destino, f"adega_{data_str}.db"))
 
-        comando_rclone = [
-            executavel_rclone, "sync", pasta_destino, "gdrive:AdegaBackup",
-            "--tpslimit", "5",
-            "--fast-list"
-        ]
-        
-        resultado = subprocess.run(comando_rclone, capture_output=True, text=True)
+            comando_rclone = [
+                executavel_rclone, "sync", pasta_destino, "gdrive:AdegaBackup",
+                "--tpslimit", "5",
+                "--fast-list"
+            ]
+            
+            resultado = subprocess.run(comando_rclone, capture_output=True, text=True)
 
-        if resultado.returncode == 0:
-            msg_ok = f"Backup Nuvem OK ({datetime.now().strftime('%H:%M:%S')})"
-            print(f"[BACKUP NUVEM OK] {data_str}")
+            if resultado.returncode == 0:
+                msg_ok = f"Backup Nuvem OK ({datetime.now().strftime('%H:%M:%S')})"
+                print(f"[BACKUP NUVEM OK] {data_str}")
+                if callback_status:
+                    callback_status(f"✅ {msg_ok}")
+                enviar_notificacao_telegram(f"🍷 *Adega Gone Drack*\n✅ Backup sincronizado com sucesso no Google Drive às {data_str}")
+            else:
+                print(f"[AVISO NUVEM] Falha pontual na sincronização remota.")
+                if callback_status:
+                    callback_status("⚠️ Backup local OK (Nuvem pendente)")
+
+        except Exception as e:
+            print(f"[ERRO BACKUP] Falha ao realizar backup: {e}")
             if callback_status:
-                callback_status(f"✅ {msg_ok}")
-            enviar_notificacao_telegram(f"🍷 *Adega Gone Drack*\n✅ Backup sincronizado com sucesso no Google Drive às {data_str}")
-            return True
-        else:
-            print(f"[AVISO NUVEM] Falha pontual na sincronização remota.")
-            if callback_status:
-                callback_status("⚠️ Backup local OK (Nuvem pendente)")
-            return False
+                callback_status("❌ Erro no backup automático")
 
-    except Exception as e:
-        print(f"[ERRO BACKUP] Falha ao realizar backup: {e}")
-        if callback_status:
-            callback_status("❌ Erro no backup automático")
-        return False
-
-def fazer_backup_nuvem(callback_status=None, assincrono=True):
-    if assincrono:
-        threading.Thread(target=executar_rotina_backup, args=(callback_status,), daemon=True).start()
-    else:
-        return executar_rotina_backup(callback_status)
+    threading.Thread(target=copiar, daemon=True).start()
 
 # --- EXPORTAÇÃO DE RELATÓRIOS ---
 def exportar_relatorio_docx(caminho_arquivo, titulo, periodo, faturamento, lucro, metodos, texto_detalhes):
-    empresa = carregar_dados_empresa()
     doc = Document()
-    doc.add_heading(f"{empresa['nome_adega']} - {titulo}", level=1)
-    doc.add_paragraph(f"CNPJ: {empresa['cnpj']}")
+    doc.add_heading(f'Adega Gone Drack - {titulo}', level=1)
     if periodo:
         doc.add_paragraph(f"Período: {periodo}")
     if faturamento is not None:
@@ -312,14 +221,10 @@ def exportar_relatorio_docx(caminho_arquivo, titulo, periodo, faturamento, lucro
     doc.save(caminho_arquivo)
 
 def exportar_relatorio_pdf(caminho_arquivo, titulo, periodo, faturamento, lucro, metodos, texto_detalhes):
-    empresa = carregar_dados_empresa()
     c = canvas.Canvas(caminho_arquivo, pagesize=letter)
     y = 750
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, y, f"{empresa['nome_adega']} - {titulo}")
-    y -= 20
-    c.setFont("Helvetica", 10)
-    c.drawString(50, y, f"CNPJ: {empresa['cnpj']}")
+    c.drawString(50, y, f"Adega Gone Drack - {titulo}")
     y -= 25
     
     c.setFont("Helvetica", 12)
@@ -392,9 +297,11 @@ def conectar():
         (id INTEGER PRIMARY KEY AUTOINCREMENT, nome_informado TEXT, quantidade INTEGER, 
         valor_pago REAL, data_venda TEXT, vendedor TEXT)''')
 
+    # Nova tabela: Movimentações de Caixa (Sangria e Suprimento)
     cursor.execute('''CREATE TABLE IF NOT EXISTS movimentacoes_caixa 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, tipo TEXT, valor REAL, motivo TEXT, usuario TEXT, data_hora TEXT)''')
 
+    # Nova tabela: Fiado (Caderneta de Clientes)
     cursor.execute('''CREATE TABLE IF NOT EXISTS clientes_fiado 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, nome_cliente TEXT, valor_devido REAL, data_registro TEXT, usuario TEXT)''')
 
@@ -510,7 +417,7 @@ def registrar_venda(id_p, qtd, tipo, metodo, vendedor="Sistema", nome_avulso=Non
         cursor.execute("UPDATE produtos SET quantidade = quantidade - ? WHERE id = ?", (q_est, id_p))
         
     conn.commit(); conn.close()
-    fazer_backup_nuvem(callback_status=callback_status, assincrono=True)
+    fazer_backup_nuvem(callback_status=callback_status)
 
 def registrar_pagamento_detalhado(forma, valor, usuario="Sistema"):
     conn = conectar(); cursor = conn.cursor()

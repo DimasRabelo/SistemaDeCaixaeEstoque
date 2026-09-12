@@ -28,53 +28,18 @@ class Aplicativo(ctk.CTk):
         super().__init__()
         self.title("Adega Gone Drack - Gestão Completa")
         self.geometry("1200x900")
-        self.withdraw()
+        self.after(10, self.withdraw)
         self.usuario_atual, self.nivel_acesso = None, None
         self.carrinho, self.pagamentos_venda = [], []
         self.desconto_venda = 0.0
         self.acrescimo_venda = 0.0
         self.cliente_fiado_nome = None
         
-        # Verifica a licença de 30 dias local antes de abrir o sistema
-        licenca_ok, self.dias_restantes, self.status_licenca_msg = verificar_status_licenca()
-        if not licenca_ok:
-            self.exibir_bloqueio_licenca()
-        else:
-            self.bind("<F1>", lambda e: self.focar_busca_venda())
-            self.bind("<F5>", lambda e: self.limpar())
-            self.after(100, self.abrir_login)
-
-    def exibir_bloqueio_licenca(self):
-        win_lock = ctk.CTkToplevel(self)
-        win_lock.title("Sistema Bloqueado - Licença Expirada")
-        win_lock.geometry("480x380")
-        win_lock.protocol("WM_DELETE_WINDOW", self.quit)
-        win_lock.attributes("-topmost", True)
+        # Configura atalhos globais de teclado no PDV
+        self.bind("<F1>", lambda e: self.focar_busca_venda())
+        self.bind("<F5>", lambda e: self.limpar())
         
-        ctk.CTkLabel(win_lock, text="🔒 PERÍODO DE TESTE EXPIRADO", font=("Arial", 18, "bold"), text_color="red").pack(pady=20)
-        
-        txt_msg = (
-            "O período de avaliação gratuita de 30 dias deste sistema encerrou.\n\n"
-            "Para continuar utilizando o software de gestão da sua adega,\n"
-            "entre em contato com o desenvolvedor (Dimtech) e informe a chave de ativação."
-        )
-        ctk.CTkLabel(win_lock, text=txt_msg, font=("Arial", 12), justify="center").pack(pady=10)
-        
-        en_key = ctk.CTkEntry(win_lock, placeholder_text="Digite a Chave de Ativação...", width=320, justify="center")
-        en_key.pack(pady=15)
-        
-        def tentar_ativacao():
-            chv = en_key.get().strip()
-            ok, msg = ativar_licenca_definitiva(chv)
-            if ok:
-                messagebox.showinfo("Sucesso", msg, parent=win_lock)
-                win_lock.destroy()
-                self.after(100, self.abrir_login)
-            else:
-                messagebox.showerror("Erro", msg, parent=win_lock)
-
-        ctk.CTkButton(win_lock, text="ATIVAR SISTEMA", fg_color="green", height=40, width=200, command=tentar_ativacao).pack(pady=10)
-        ctk.CTkButton(win_lock, text="SAIR", fg_color="#444444", width=120, command=self.quit).pack(pady=5)
+        self.after(100, self.abrir_login)
 
     def focar_busca_venda(self):
         if hasattr(self, 'en_busca') and self.en_busca.winfo_exists():
@@ -83,9 +48,6 @@ class Aplicativo(ctk.CTk):
     def atualizar_status_backup(self, texto):
         if hasattr(self, 'lbl_status_backup') and self.lbl_status_backup.winfo_exists():
             self.after(0, lambda: self.lbl_status_backup.configure(text=texto))
-
-    def disparar_backup_manual(self):
-        fazer_backup_nuvem(callback_status=self.atualizar_status_backup, assincrono=True)
 
     def formatar_data_brasil(self, event):
         widget = event.widget
@@ -112,64 +74,13 @@ class Aplicativo(ctk.CTk):
         widget.delete(0, 'end'); widget.insert(0, f"{v_float:.2f}")
 
     def logout(self):
-        self.abrir_janela_fechamento_cego()
-
-    def abrir_janela_fechamento_cego(self):
-        win_fechamento = ctk.CTkToplevel(self)
-        win_fechamento.title("Fechamento de Turno / Caixa")
-        win_fechamento.geometry("420x450")
-        win_fechamento.attributes("-topmost", True)
-        self.after(200, lambda: win_fechamento.grab_set())
-        
-        ctk.CTkLabel(win_fechamento, text="📋 FECHAMENTO CEGO DE TURNO", font=("Arial", 16, "bold"), text_color="orange").pack(pady=15)
-        ctk.CTkLabel(win_fechamento, text="Informe a contagem física dos valores da gaveta\npara encerrar o turno de trabalho:", font=("Arial", 11)).pack(pady=2)
-        
-        ctk.CTkLabel(win_fechamento, text="Dinheiro em Espécie (R$):", font=("Arial", 12, "bold")).pack(pady=(10, 2))
-        en_din = ctk.CTkEntry(win_fechamento, placeholder_text="0.00", justify="center", width=250)
-        en_din.pack()
-        en_din.bind("<KeyRelease>", self.formatar_moeda_dinamico)
-        
-        ctk.CTkLabel(win_fechamento, text="Comprovantes PIX (R$):", font=("Arial", 12, "bold")).pack(pady=(10, 2))
-        en_pix = ctk.CTkEntry(win_fechamento, placeholder_text="0.00", justify="center", width=250)
-        en_pix.pack()
-        en_pix.bind("<KeyRelease>", self.formatar_moeda_dinamico)
-        
-        ctk.CTkLabel(win_fechamento, text="Comprovantes Cartão Débito/Crédito (R$):", font=("Arial", 12, "bold")).pack(pady=(10, 2))
-        en_car = ctk.CTkEntry(win_fechamento, placeholder_text="0.00", justify="center", width=250)
-        en_car.pack()
-        en_car.bind("<KeyRelease>", self.formatar_moeda_dinamico)
-        
-        def confirmar_fechamento():
-            val_din = safe_float(en_din.get())
-            val_pix = safe_float(en_pix.get())
-            val_car = safe_float(en_car.get())
-            
-            obs = f"Contagem Cega Operador: Dinheiro: R${val_din:.2f} | PIX: R${val_pix:.2f} | Cartão: R${val_car:.2f}"
-            registrar_movimentacao_caixa("Fechamento Cego", val_din + val_pix + val_car, obs, self.usuario_atual)
-            
-            messagebox.showinfo("Turno Encerrado", "Fechamento de caixa registrado com sucesso!\nSincronizando dados...", parent=win_fechamento)
-            win_fechamento.destroy()
-            
-            self.atualizar_status_backup("☁️ Sincronizando antes de sair...")
-            self.update_idletasks()
-            fazer_backup_nuvem(callback_status=self.atualizar_status_backup, assincrono=False)
+        if messagebox.askyesno("Sair", "Deseja realmente encerrar a sessão atual?"):
             os.execl(sys.executable, sys.executable, *sys.argv)
 
-        ctk.CTkButton(win_fechamento, text="ENCERRAR TURNO E SAIR", fg_color="green", height=42, font=("Arial", 13, "bold"), command=confirmar_fechamento).pack(pady=20)
-
-    def fechar_aplicacao_no_x_login(self):
-        if not self.usuario_atual:
-            self.destroy()
-
     def abrir_login(self):
-        self.login_win = ctk.CTkToplevel(self)
-        self.login_win.title("Acesso Dimtech - Gone Drack")
-        self.login_win.geometry("400x440")
-        self.login_win.protocol("WM_DELETE_WINDOW", self.fechar_aplicacao_no_x_login)
-        
-        ctk.CTkLabel(self.login_win, text="ADEGA GONE DRACK", font=("Arial", 20, "bold")).pack(pady=(15, 2))
-        ctk.CTkLabel(self.login_win, text=self.status_licenca_msg, font=("Arial", 10, "bold"), text_color="orange" if self.dias_restantes < 999 else "#32CD32").pack(pady=(0, 10))
-        
+        self.login_win = ctk.CTkToplevel(self); self.login_win.title("Acesso Dimtech - Gone Drack"); self.login_win.geometry("400x420")
+        self.login_win.attributes("-topmost", True); self.login_win.protocol("WM_DELETE_WINDOW", self.quit)
+        ctk.CTkLabel(self.login_win, text="ADEGA GONE DRACK", font=("Arial", 20, "bold")).pack(pady=15)
         ctk.CTkLabel(self.login_win, text="Por favor, identifique-se:").pack()
         
         users = [u[2] for u in listar_usuarios()]
@@ -177,16 +88,13 @@ class Aplicativo(ctk.CTk):
         self.en_user.pack(pady=10)
         if "admin" in users: self.en_user.set("admin")
         
-        self.en_pass = ctk.CTkEntry(self.login_win, placeholder_text="Senha", placeholder_text_color="#a9a9a9", show="*", width=250)
-        self.en_pass.pack(pady=10)
+        self.en_pass = ctk.CTkEntry(self.login_win, placeholder_text="Senha", placeholder_text_color="#a9a9a9", show="*", width=250); self.en_pass.pack(pady=10)
         self.en_pass.bind("<Return>", lambda e: self.tentar_login())
-        self.lbl_erro = ctk.CTkLabel(self.login_win, text="", text_color="red")
-        self.lbl_erro.pack(pady=2)
+        self.lbl_erro = ctk.CTkLabel(self.login_win, text="", text_color="red"); self.lbl_erro.pack(pady=2)
         
         ctk.CTkButton(self.login_win, text="ENTRAR", command=self.tentar_login, width=250, height=40, fg_color="green").pack(pady=10)
         ctk.CTkButton(self.login_win, text="Esqueci minha senha", command=self.abrir_recuperacao_senha, fg_color="transparent", text_color="#3B82F6", hover=False).pack(pady=2)
         
-        self.login_win.attributes("-topmost", True)
         self.after(200, lambda: self.en_pass.focus_set())
 
     def abrir_recuperacao_senha(self):
@@ -228,11 +136,9 @@ class Aplicativo(ctk.CTk):
         ctk.CTkButton(pop_rec, text="REDEFINIR SENHA", fg_color="blue", height=38, command=executar_recuperacao).pack(pady=20)
 
     def tentar_login(self):
-        u, s = self.en_user.get(), self.en_pass.get()
-        d = verificar_login(u, s)
+        u, s = self.en_user.get(), self.en_pass.get(); d = verificar_login(u, s)
         if d: 
             self.usuario_atual, self.nivel_acesso = d['nome'], d['nivel']
-            self.login_win.withdraw()
             self.login_win.destroy()
             self.montar_sistema()
             self.aplicar_restricoes()
@@ -250,31 +156,23 @@ class Aplicativo(ctk.CTk):
             messagebox.showwarning("Estoque Crítico", msg)
 
     def montar_sistema(self):
-        f = ctk.CTkFrame(self, fg_color="transparent")
-        f.pack(fill="x", padx=15, pady=(10, 0))
+        f = ctk.CTkFrame(self, fg_color="transparent"); f.pack(fill="x", padx=15, pady=(10, 0))
         ctk.CTkLabel(f, text=f"👤 Logado como: {self.usuario_atual}", font=("Arial", 14, "bold"), text_color="#32CD32").pack(side="left")
         
+        # Status do Backup na barra superior
         self.lbl_status_backup = ctk.CTkLabel(f, text="Backup: Pronto", font=("Arial", 11), text_color="#A9A9A9")
-        self.lbl_status_backup.pack(side="left", padx=15)
+        self.lbl_status_backup.pack(side="left", padx=20)
 
         f_top_btns = ctk.CTkFrame(f, fg_color="transparent")
         f_top_btns.pack(side="right")
         
-        ctk.CTkButton(f_top_btns, text="☁️ BACKUP", width=100, height=32, fg_color="#2B579A", command=self.disparar_backup_manual).pack(side="left", padx=3)
         ctk.CTkButton(f_top_btns, text="💸 SANGRIA", width=110, height=32, fg_color="#D97706", command=lambda: self.abrir_movimentacao_caixa("Sangria")).pack(side="left", padx=3)
         ctk.CTkButton(f_top_btns, text="📥 SUPRIMENTO", width=120, height=32, fg_color="#008B8B", command=lambda: self.abrir_movimentacao_caixa("Suprimento")).pack(side="left", padx=3)
         ctk.CTkButton(f_top_btns, text="🔑 SENHA", width=100, height=32, fg_color="#1f538d", command=self.abrir_janela_alterar_senha).pack(side="left", padx=3)
-        ctk.CTkButton(f_top_btns, text="SAIR / FECHAR", width=110, height=32, fg_color="#A52A2A", command=self.logout).pack(side="left", padx=3)
+        ctk.CTkButton(f_top_btns, text="SAIR", width=80, height=32, fg_color="#A52A2A", command=self.logout).pack(side="left", padx=3)
         
-        self.tabview = ctk.CTkTabview(self, width=1150, height=820, command=self.ao_trocar_aba)
-        self.tabview.pack(padx=10, pady=10, expand=True, fill="both")
-        
-        abas_disponiveis = ["Vender", "Cadastrar", "Estoque", "Fiado"]
-        if self.nivel_acesso == "Admin":
-            abas_disponiveis.extend(["Relatório", "Ajustes", "Usuários"])
-
-        for aba in abas_disponiveis:
-            self.tabview.add(aba)
+        self.tabview = ctk.CTkTabview(self, width=1150, height=820, command=self.ao_trocar_aba); self.tabview.pack(padx=10, pady=10, expand=True, fill="both")
+        for aba in ["Vender", "Cadastrar", "Estoque", "Fiado", "Relatório", "Ajustes", "Usuários"]: self.tabview.add(aba)
         
         self.tabview._segmented_button.configure(font=("Arial", 18, "bold"))
         
@@ -282,12 +180,9 @@ class Aplicativo(ctk.CTk):
         self.configurar_aba_cadastrar()
         self.configurar_aba_estoque()
         self.configurar_aba_fiado()
-        
-        if self.nivel_acesso == "Admin":
-            self.configurar_aba_relatorio()
-            self.configurar_aba_ajustes()
-            self.configurar_aba_usuarios() 
-            
+        self.configurar_aba_relatorio()
+        self.configurar_aba_ajustes()
+        self.configurar_aba_usuarios() 
         self.carregar_dados()
         self.deiconify() 
 
@@ -357,11 +252,7 @@ class Aplicativo(ctk.CTk):
 
     def carregar_dados(self):
         try: 
-            self.atualizar_lista_estoque()
-            if self.nivel_acesso == "Admin":
-                self.atualizar_relatorio()
-                self.atualizar_lista_usuarios()
-            self.atualizar_lista_fiado()
+            self.atualizar_lista_estoque(); self.atualizar_relatorio(); self.atualizar_lista_usuarios(); self.atualizar_lista_fiado()
         except Exception as e:
             print(f"[LOG ERRO] Erro ao carregar dados iniciais: {e}")
 
@@ -369,11 +260,14 @@ class Aplicativo(ctk.CTk):
         aba = self.tabview.get()
         if aba == "Estoque": self.atualizar_lista_estoque()
         elif aba == "Fiado": self.atualizar_lista_fiado()
-        elif aba == "Relatório" and self.nivel_acesso == "Admin": self.atualizar_relatorio()
-        elif aba == "Usuários" and self.nivel_acesso == "Admin": self.atualizar_lista_usuarios()
+        elif aba == "Relatório": self.atualizar_relatorio()
+        elif aba == "Usuários": self.atualizar_lista_usuarios()
 
     def aplicar_restricoes(self):
-        pass
+        if self.nivel_acesso == "Admin": return
+        try: [self.tabview.delete(a) for a in ["Relatório", "Ajustes", "Usuários"]]
+        except Exception as e:
+            print(f"[LOG ERRO] Erro ao aplicar restrições de nível: {e}")
 
     # --- ABA VENDER ---
     def configurar_aba_vender(self):
@@ -420,6 +314,7 @@ class Aplicativo(ctk.CTk):
         f_dir = ctk.CTkFrame(f_main, fg_color="#2b2b2b", corner_radius=10, width=350); f_dir.pack(side="right", padx=20, pady=10, fill="y"); f_dir.pack_propagate(False) 
         self.lbl_tot = ctk.CTkLabel(f_dir, text="TOTAL: R$ 0,00", font=("Arial", 28, "bold"), text_color="yellow"); self.lbl_tot.pack(pady=5)
         
+        # Botões de Desconto e Acréscimo
         f_ajustes_venda = ctk.CTkFrame(f_dir, fg_color="transparent")
         f_ajustes_venda.pack(pady=2)
         ctk.CTkButton(f_ajustes_venda, text="🏷️ DESCONTO", width=130, height=28, fg_color="#D97706", command=self.aplicar_desconto).pack(side="left", padx=2)
@@ -614,12 +509,10 @@ class Aplicativo(ctk.CTk):
             total_venda = max(0.0, total_bruto - self.desconto_venda + self.acrescimo_venda)
             total_pago = sum(p['valor'] for p in self.pagamentos_venda)
             troco = round(total_pago - total_venda, 2)
+            
             forma_principal = self.pagamentos_venda[0]['forma'] if self.pagamentos_venda else "Dinheiro"
 
-            # Pergunta CPF/CNPJ do Consumidor na Nota (Opcional)
-            doc_cliente = ctk.CTkInputDialog(text="Digite o CPF ou CNPJ do consumidor (Deixe em branco se não quiser):", title="Documento na Nota").get_input()
-            doc_cliente = doc_cliente.strip() if doc_cliente else None
-
+            # Se houver fiado, registra a dívida do cliente
             if any(p['forma'] == 'Fiado' for p in self.pagamentos_venda):
                 val_fiado = sum(p['valor'] for p in self.pagamentos_venda if p['forma'] == 'Fiado')
                 registrar_fiado_cliente(self.cliente_fiado_nome or "Cliente Genérico", val_fiado, self.usuario_atual)
@@ -651,8 +544,7 @@ class Aplicativo(ctk.CTk):
                     pago=total_pago,
                     troco=troco,
                     pagamentos=self.pagamentos_venda,
-                    cliente_fiado=self.cliente_fiado_nome,
-                    documento_cliente=doc_cliente
+                    cliente_fiado=self.cliente_fiado_nome
                 )
 
             if messagebox.askyesno("Salvar PDF", "Deseja salvar o comprovante em PDF no computador?"):
@@ -671,8 +563,7 @@ class Aplicativo(ctk.CTk):
                         pago=total_pago,
                         troco=troco,
                         pagamentos=self.pagamentos_venda,
-                        cliente_fiado=self.cliente_fiado_nome,
-                        documento_cliente=doc_cliente
+                        cliente_fiado=self.cliente_fiado_nome
                     )
                     if messagebox.askyesno("Sucesso", "PDF do comprovante salvo com sucesso!\n\nDeseja abrir o arquivo agora?"):
                         abrir_arquivo_gerado(caminho)
@@ -924,11 +815,12 @@ class Aplicativo(ctk.CTk):
                 self.txt_rel_itens.insert("end", f"VENDEDORES:\n" + "-"*45 + "\n")
                 for v in resumo_vendas_por_vendedor(d1, d2): self.txt_rel_itens.insert("end", f"{v[0]:<25} | R$ {v[1]:>10.2f}\n")
                 
+                # Exibe movimentações de Caixa no relatório
                 movs = listar_movimentacoes_caixa(d1, d2)
                 if movs:
-                    self.txt_rel_itens.insert("end", f"\nMOVIMENTAÇÕES / FECHAMENTOS CEGOS DE CAIXA:\n" + "-"*65 + "\n")
+                    self.txt_rel_itens.insert("end", f"\nMOVIMENTAÇÕES DE CAIXA (SANGRIA / SUPRIMENTO):\n" + "-"*65 + "\n")
                     for m in movs:
-                        self.txt_rel_itens.insert("end", f"{m[5]} | {m[1].upper():<15} | R$ {m[2]:>8.2f} | {m[3]} ({m[4]})\n")
+                        self.txt_rel_itens.insert("end", f"{m[5]} | {m[1].upper():<10} | R$ {m[2]:>8.2f} | {m[3]} ({m[4]})\n")
 
                 self.txt_rel_itens.insert("end", f"\nPRODUTOS VENDIDOS:\n" + "-"*45 + "\n")
                 for p in produtos_mais_vendidos_hoje(d1, d2): self.txt_rel_itens.insert("end", f"{p[0][:25]:<25} | {p[1]:<5} | {p[2]}\n")
